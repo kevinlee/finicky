@@ -1,3 +1,46 @@
+# Finicky Plus
+
+A personal fork of [Finicky](https://github.com/johnste/finicky) with visual profile routing and a native browser picker, developed toward the capabilities documented by Velja. This is a development build, **not a claim of complete feature parity**. See the [capability matrix](docs/PARITY.md) for supported behavior and remaining differences.
+
+The fork adds saved Work/Personal/Academic-style destinations, website and source-app rules, private windows, URL cleanup and transformation editors, recent history, profile access controls, and import/export. A companion app supplies native Shortcuts actions, Safari and Share extensions, and a Focus filter. Chromium and Firefox extensions are included separately.
+
+## Build this fork
+
+Requires macOS 13+, Xcode command-line tools, Go, Node.js, and npm. The native companion additionally needs full Xcode and XcodeGen.
+
+```sh
+npm --prefix packages/config-api ci
+npm --prefix packages/finicky-ui ci
+./scripts/build-fork.sh --integrations
+```
+
+Outputs:
+
+- `apps/finicky/build/Finicky Plus.app` — the router and settings.
+- `dist/integrations/Finicky Actions.app` — Shortcuts, Safari, Share, and Focus integrations.
+- `apps/browser-addon/build/chrome.zip` and `firefox.zip` — browser extensions.
+
+Build scripts do not install or replace applications. Local builds use ad hoc signatures, not notarized distribution. Enable native integrations using the [companion setup guide](apps/integrations/README.md); the Chromium extension can be loaded unpacked from its extracted archive. Firefox distribution requires Mozilla signing; temporary developer loading is available for local testing.
+
+For a safe visual preview that simulates browser launches and uses separate settings:
+
+```sh
+./scripts/run-preview.sh
+```
+
+To resolve a URL without opening a browser:
+
+```sh
+'apps/finicky/build/Finicky Plus.app/Contents/MacOS/Finicky' \
+  --no-config --rules path/to/rules.json --test-url 'https://example.com'
+```
+
+The fork uses the `finicky-plus://` scheme, `com.kevinlee.finicky` identity, and `~/Library/Application Support/Finicky Plus/` storage. An existing `~/.finicky.js` is still read unless `--no-config` is supplied. JavaScript handlers have priority over visual rules; an explicitly saved visual default controls unmatched links. No existing browser profile data is modified. See [build verification and limits](docs/VERIFICATION.md).
+
+## Upstream project documentation
+
+The installation instructions and releases below describe upstream Finicky, not this fork. Finicky's MIT license and attribution are retained.
+
 <div align="center"><picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/ab66e6cc-25d1-4f5f-9c98-c742ecb2261f">
   <img alt="Finicky Logo" height="110" src="https://github.com/user-attachments/assets/067d7619-a2be-49dd-8a4f-5e9a46fa632a">

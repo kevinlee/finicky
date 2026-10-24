@@ -45,6 +45,8 @@ static char **getAllHttpsHandlerNames(int *count) {
 		NSSet *excludedBundleIDs = [NSSet setWithObjects:
 			@"se.johnste.finicky",
 			@"net.kassett.finicky",
+			@"com.kevinlee.finicky",
+			@"com.kevinlee.finicky.preview",
 			nil];
 
 		for (NSURL *appURL in appURLs) {
@@ -77,12 +79,31 @@ static void freeNames(char **names, int count) {
 	}
 	free(names);
 }
+
+static BOOL appExists(const char *identifier) {
+	@autoreleasepool {
+		NSString *value = [NSString stringWithUTF8String:identifier];
+		if ([value hasPrefix:@"/"]) {
+			return [[NSFileManager defaultManager] fileExistsAtPath:value];
+		}
+		NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:value];
+		if (url) return YES;
+		return [[NSWorkspace sharedWorkspace] fullPathForApplication:value] != nil;
+	}
+}
 */
 import "C"
 import (
 	"sort"
 	"unsafe"
 )
+
+// AppExists checks Launch Services without opening or activating an app.
+func AppExists(identifier string) bool {
+	value := C.CString(identifier)
+	defer C.free(unsafe.Pointer(value))
+	return bool(C.appExists(value))
+}
 
 // GetInstalledBrowsers returns the display names of all apps registered to
 // handle https:// URLs, as reported by the macOS Launch Services framework.

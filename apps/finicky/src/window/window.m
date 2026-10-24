@@ -63,21 +63,21 @@ void SetFileContentWithLength(const char* path, const char* content, size_t leng
 
 - (void)setupWindow {
     // Create window
-    window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 860, 600)
+    window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1120, 780)
                                        styleMask:NSWindowStyleMaskTitled |
                                                 NSWindowStyleMaskClosable |
                                                 NSWindowStyleMaskMiniaturizable |
                                                 NSWindowStyleMaskResizable
                                          backing:NSBackingStoreBuffered
                                            defer:NO];
-    [window setTitle:@"Finicky"];
+    [window setTitle:@"Finicky Plus"];
     [window center];
     [window setReleasedWhenClosed:NO];
     [window setBackgroundColor:[NSColor colorWithCalibratedWhite:0.1 alpha:1.0]];
 
     // Set minimum window size
-    [window setMinSize:NSMakeSize(800, 500)];
-    [window setMaxSize:NSMakeSize(1200, 900)];
+    [window setMinSize:NSMakeSize(760, 560)];
+    [window setMaxSize:NSMakeSize(1600, 1100)];
 
     // Configure WKWebView
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];

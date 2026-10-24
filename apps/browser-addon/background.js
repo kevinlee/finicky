@@ -1,24 +1,33 @@
-const menuItemId = "finicky-open-url";
-
-// Service workers don't have access to window object, use chrome directly
-const browser = chrome;
-
-// Create context menu when service worker starts
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: menuItemId,
-    title: "Open with Finicky",
-    contexts: ["link"],
-  });
+/* Browser integrations for the Finicky fork. All launch requests use a URL,
+   never executable code. The native app validates the destination again. */
+const extensionAPI = typeof browser !== "undefined" ? browser : chrome;
+const menus = {
+  "finicky-route-link": {title: "Open with Finicky", contexts: ["link"]},
+  "finicky-choose-link": {title: "Choose browser or profile…", contexts: ["link"]},
+  "finicky-choose-page": {title: "Open this page in another profile…", contexts: ["page"]},
+};
+function requestURL(raw, prompt = true) {
+  const target = new URL(raw);
+  if (!["http:", "https:"].includes(target.protocol)) return null;
+  return "finicky-plus://open?url=" + encodeURIComponent(target.href) + (prompt ? "&prompt=true" : "");
+}
+function openTarget(raw, tab, prompt) {
+  try {
+    const request = requestURL(raw, prompt);
+    if (request && tab?.id != null) extensionAPI.tabs.update(tab.id, {url: request});
+  } catch { /* Ignore unsupported or missing URLs. */ }
+}
+extensionAPI.runtime.onInstalled.addListener(async () => {
+  await extensionAPI.contextMenus.removeAll();
+  for (const [id, options] of Object.entries(menus)) extensionAPI.contextMenus.create({id, ...options});
 });
-
-// Handle context menu clicks
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId !== menuItemId) {
-    return;
-  }
-
-  console.log("Finicky Browser Extension: Opening link in Finicky", info.linkUrl);
-
-  chrome.tabs.update(tab.id, { url: "finicky://open/" + btoa(info.linkUrl) });
+extensionAPI.contextMenus.onClicked.addListener((info, tab) => {
+  if (!(info.menuItemId in menus)) return;
+  openTarget(info.linkUrl || info.pageUrl || tab?.url, tab, info.menuItemId !== "finicky-route-link");
+});
+(extensionAPI.action || extensionAPI.browserAction).onClicked.addListener(tab => openTarget(tab.url, tab, true));
+extensionAPI.commands.onCommand.addListener(async command => {
+  if (command !== "choose-profile") return;
+  const tabs = await extensionAPI.tabs.query({active: true, currentWindow: true});
+  if (tabs[0]) openTarget(tabs[0].url, tabs[0], true);
 });

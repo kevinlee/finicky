@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"finicky/assets"
 	"finicky/browser"
+	"finicky/resolver"
 	"finicky/rules"
 	"finicky/util"
 	"finicky/version"
@@ -26,11 +27,12 @@ import (
 )
 
 var (
-	messageQueue     []string
-	queueMutex       sync.Mutex
-	windowReady      bool
-	TestUrlHandler   func(string)
-	SaveRulesHandler func(rules.RulesFile)
+	messageQueue          []string
+	queueMutex            sync.Mutex
+	windowReady           bool
+	TestUrlHandler        func(string, *resolver.OpenerInfo)
+	SaveRulesHandler      func(rules.RulesFile) error
+	FeatureMessageHandler func(map[string]interface{}) bool
 )
 
 //export WindowIsReady
@@ -173,6 +175,9 @@ func HandleWebViewMessage(messagePtr *C.char) {
 	case "getBrowserProfiles":
 		handleGetBrowserProfiles(msg)
 	default:
+		if FeatureMessageHandler != nil && FeatureMessageHandler(msg) {
+			return
+		}
 		slog.Debug("Unknown message type", "type", messageType)
 	}
 }
@@ -181,13 +186,31 @@ func handleTestUrl(msg map[string]interface{}) {
 	url, ok := msg["url"].(string)
 	if !ok {
 		slog.Error("testUrl message missing url field")
+		SendMessageToWebView("testUrlResult", map[string]interface{}{"error": "Enter a URL to test"})
 		return
 	}
 
 	slog.Debug("Forwarding test URL request", "url", url)
 
 	if TestUrlHandler != nil {
-		TestUrlHandler(url)
+		var opener *resolver.OpenerInfo
+		bundleID, _ := msg["openerBundleId"].(string)
+		name, _ := msg["openerName"].(string)
+		path, _ := msg["openerPath"].(string)
+		windowTitle, _ := msg["openerWindowTitle"].(string)
+		if bundleID != "" {
+			opener = &resolver.OpenerInfo{BundleID: bundleID, Name: name, Path: path, WindowTitle: windowTitle}
+		}
+		if source, ok := msg["opener"].(map[string]interface{}); ok {
+			bundleID, _ := source["bundleId"].(string)
+			name, _ := source["name"].(string)
+			path, _ := source["path"].(string)
+			windowTitle, _ := source["windowTitle"].(string)
+			if opener == nil && bundleID != "" {
+				opener = &resolver.OpenerInfo{BundleID: bundleID, Name: name, Path: path, WindowTitle: windowTitle}
+			}
+		}
+		TestUrlHandler(url, opener)
 	} else {
 		slog.Error("TestUrlHandler not set")
 		SendMessageToWebView("testUrlResult", map[string]interface{}{
@@ -224,18 +247,21 @@ func handleSaveRules(msg map[string]interface{}) {
 	payload, ok := msg["payload"]
 	if !ok {
 		slog.Error("saveRules message missing payload field")
+		SendMessageToWebView("saveRulesError", map[string]interface{}{"error": "Settings payload is missing"})
 		return
 	}
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		slog.Error("Failed to marshal saveRules payload", "error", err)
+		SendMessageToWebView("saveRulesError", map[string]interface{}{"error": err.Error()})
 		return
 	}
 
 	var rf rules.RulesFile
 	if err := json.Unmarshal(payloadBytes, &rf); err != nil {
 		slog.Error("Failed to parse saveRules payload", "error", err)
+		SendMessageToWebView("saveRulesError", map[string]interface{}{"error": err.Error()})
 		return
 	}
 
@@ -253,11 +279,14 @@ func handleSaveRules(msg map[string]interface{}) {
 		rules.RulesFile
 		Path string `json:"path,omitempty"`
 	}
-	SendMessageToWebView("rules", rulesResponse{RulesFile: rf, Path: util.ShortenPath(path)})
-
 	if SaveRulesHandler != nil {
-		SaveRulesHandler(rf)
+		if err := SaveRulesHandler(rf); err != nil {
+			SendMessageToWebView("saveRulesError", map[string]interface{}{"error": "Settings were saved but could not be applied: " + err.Error()})
+			return
+		}
 	}
+	SendMessageToWebView("rules", rulesResponse{RulesFile: rf, Path: util.ShortenPath(path)})
+	SendMessageToWebView("saveRulesSuccess", map[string]interface{}{})
 }
 
 func handleGetInstalledBrowsers() {
@@ -269,7 +298,8 @@ func handleGetBrowserProfiles(msg map[string]interface{}) {
 	browserName, _ := msg["browser"].(string)
 	profiles := browser.GetProfilesForBrowser(browserName)
 	SendMessageToWebView("browserProfiles", map[string]interface{}{
-		"browser":  browserName,
-		"profiles": profiles,
+		"browser":        browserName,
+		"profiles":       profiles,
+		"profileDetails": browser.GetBrowserProfiles(browserName),
 	})
 }

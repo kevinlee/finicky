@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import fs from 'node:fs';
+test('toolbar and context links preserve Unicode and force the picker', async () => {
+  const listeners = {}; const updates = []; const menus = [];
+  const event = key => ({addListener: cb => listeners[key] = cb});
+  const chrome = {runtime:{onInstalled:event('install')}, contextMenus:{onClicked:event('menu'),removeAll:async(...args)=>{assert.equal(args.length,0);},create:item=>menus.push(item)}, action:{onClicked:event('action')}, commands:{onCommand:event('command')}, tabs:{update:(id,obj)=>updates.push([id,obj]),query:async()=>[]}};
+  vm.runInNewContext(fs.readFileSync(new URL('../background.js',import.meta.url),'utf8'),{chrome,URL});
+  await listeners.install();
+  assert.equal(menus.length,3);
+  listeners.action({id:1,url:'https://example.com/日本?q=a&b=two'});
+  const request=new URL(updates[0][1].url);
+  assert.equal(request.protocol,'finicky-plus:');
+  assert.equal(request.searchParams.get('url'),'https://example.com/%E6%97%A5%E6%9C%AC?q=a&b=two');
+  assert.equal(request.searchParams.get('prompt'),'true');
+  listeners.menu({menuItemId:'finicky-route-link',linkUrl:'https://example.com'}, {id:1});
+  assert.equal(new URL(updates[1][1].url).searchParams.has('prompt'),false);
+  listeners.action({id:1,url:'javascript:alert(1)'});
+  assert.equal(updates.length,2);
+});

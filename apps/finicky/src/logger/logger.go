@@ -3,20 +3,26 @@ package logger
 import (
 	"bytes"
 	"finicky/util"
-	"finicky/window"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
-var memLog *bytes.Buffer
-var file *os.File
-
 // windowWriter implements io.Writer to send logs to the window
 type windowWriter struct{}
+
+var windowHandlerMu sync.RWMutex
+var windowHandler func(string)
+
+func SetWindowHandler(handler func(string)) {
+	windowHandlerMu.Lock()
+	windowHandler = handler
+	windowHandlerMu.Unlock()
+}
 
 func (w *windowWriter) Write(p []byte) (n int, err error) {
 	// Remove trailing newline if present
@@ -25,7 +31,12 @@ func (w *windowWriter) Write(p []byte) (n int, err error) {
 		msg = msg[:len(msg)-1]
 	}
 
-	window.SendMessageToWebView("log", msg)
+	windowHandlerMu.RLock()
+	handler := windowHandler
+	windowHandlerMu.RUnlock()
+	if handler != nil {
+		handler(msg)
+	}
 	return len(p), nil
 }
 
@@ -47,66 +58,99 @@ func createHandler(writer io.Writer) slog.Handler {
 	})
 }
 
-// Setup initializes the logger with basic configuration
+// Setup initializes a persistent sink; changing file logging never leaves an
+// old slog handler holding a closed file descriptor.
 func Setup() {
-	// Start with in-memory logging
-	memLog = &bytes.Buffer{}
-	multiWriter := io.MultiWriter(memLog, os.Stdout, &windowWriter{})
-
-	// Set the default logger
-	slog.SetDefault(slog.New(createHandler(multiWriter)))
+	logs.reset()
+	slog.SetDefault(slog.New(createHandler(io.MultiWriter(logs, os.Stdout, &windowWriter{}))))
 }
 
-// SetupFile configures file logging if enabled
+// SetupFile updates the existing sink. Repeated enables reuse its open file;
+// disabling synchronizes with in-flight writes and closes it before returning.
 func SetupFile(shouldLog bool) error {
-	slog.Debug("Setting up file logging", "shouldLog", shouldLog)
-	if shouldLog {
-		slog.Warn("Logging requests to disk. Logs may include sensitive information. Disable this by setting logRequests: false.")
-	}
-
 	if !shouldLog {
-		// FIXME: We should recreate the logger if the file logging options has been changed while the app is running
-		return nil
+		return logs.setFile(false, "")
 	}
-
 	homeDir, err := util.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get user home directory: %w", err)
 	}
-
-	logDir := filepath.Join(homeDir, "Library", "Logs", "Finicky")
-	err = os.MkdirAll(logDir, 0755) // Create directory if it doesn't exist
-	if err != nil {
-		return fmt.Errorf("failed to create log directory: %v", err)
-	}
-
-	currentTime := time.Now().Format("2006-01-02_15-04-05.000")
-	logFile := filepath.Join(logDir, fmt.Sprintf("Finicky_%s.log", currentTime))
-
-	file, err = os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open log file: %v", err)
-	}
-
-	slog.Info("Log file created", "path", logFile)
-
-	// Write buffered logs to file
-	if _, err := file.Write(memLog.Bytes()); err != nil {
-		return fmt.Errorf("failed to write buffered logs: %v", err)
-	}
-
-	// Update writer to include file while preserving window writer
-	multiWriter := io.MultiWriter(file, memLog, os.Stdout, &windowWriter{})
-
-	// Update the default logger
-	slog.SetDefault(slog.New(createHandler(multiWriter)))
-	return nil
+	return logs.setFile(true, filepath.Join(homeDir, "Library", "Logs", "Finicky Plus"))
 }
 
-// Close properly closes the logger and any open file handles
 func Close() {
 	slog.Info("Application closed!")
-	if file != nil {
-		file.Close()
+	_ = logs.setFile(false, "")
+}
+
+const maxMemoryLog = 1024 * 1024
+
+var logs = &logWriter{}
+
+type logWriter struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+	file   *os.File
+}
+
+func (w *logWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buffer.Write(p)
+	if w.buffer.Len() > maxMemoryLog {
+		tail := w.buffer.Bytes()[w.buffer.Len()-maxMemoryLog/2:]
+		if newline := bytes.IndexByte(tail, '\n'); newline >= 0 {
+			tail = tail[newline+1:]
+		} else {
+			tail = nil
+		}
+		retained := append([]byte(nil), tail...)
+		w.buffer.Reset()
+		w.buffer.Write(retained)
 	}
+	if w.file != nil {
+		if _, err := w.file.Write(p); err != nil {
+			return 0, err
+		}
+	}
+	return len(p), nil
+}
+
+func (w *logWriter) reset() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file != nil {
+		_ = w.file.Close()
+		w.file = nil
+	}
+	w.buffer.Reset()
+}
+
+func (w *logWriter) setFile(enabled bool, directory string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !enabled {
+		if w.file == nil {
+			return nil
+		}
+		err := w.file.Close()
+		w.file = nil
+		return err
+	}
+	if w.file != nil {
+		return nil
+	}
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
+	}
+	file, err := os.CreateTemp(directory, "Finicky-Plus_"+time.Now().Format("2006-01-02_15-04-05")+"_*.log")
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %w", err)
+	}
+	if _, err = file.Write(w.buffer.Bytes()); err != nil {
+		file.Close()
+		return fmt.Errorf("failed to write buffered logs: %w", err)
+	}
+	w.file = file
+	return nil
 }

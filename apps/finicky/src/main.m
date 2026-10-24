@@ -7,8 +7,39 @@
 
 #import "window/window.h"  // For ShowWindow()
 
+static bool previewMode = false;
+
+void SetPreviewMode(bool enabled) {
+    previewMode = enabled;
+}
+
+static NSString *menuIconStyle = @"default";
+static NSString *menuBrowser = @"";
+static NSImage *CurrentMenuIcon(void) {
+    NSImage *icon = nil;
+    if ([menuIconStyle isEqualToString:@"browser"] && menuBrowser.length) {
+        NSURL *appURL = [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:menuBrowser];
+        NSString *path = appURL.path;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        if (!path) path = [NSWorkspace.sharedWorkspace fullPathForApplication:menuBrowser];
+#pragma clang diagnostic pop
+        if (path) icon = [NSWorkspace.sharedWorkspace iconForFile:path];
+        icon.template = NO;
+    } else if ([menuIconStyle isEqualToString:@"globe"] || [menuIconStyle isEqualToString:@"arrow"]) {
+        icon = [NSImage imageWithSystemSymbolName:[menuIconStyle isEqualToString:@"globe"] ? @"globe" : @"arrow.triangle.branch" accessibilityDescription:@"Finicky Plus"];
+        icon.template = YES;
+    }
+    if (!icon) {
+        icon = [[NSImage alloc] initWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"menu-bar" ofType:@"icns"]];
+        icon.template = YES;
+    }
+    icon.size = NSMakeSize(18,18);
+    return icon;
+}
+
 // Extend BrowseAppDelegate to hold a status item and declare menu action
-@interface BrowseAppDelegate ()
+@interface BrowseAppDelegate () <NSMenuDelegate>
 @property (nonatomic, strong) NSStatusItem *statusItem;
 - (void)showWindowAction:(id)sender;
 @end
@@ -28,7 +59,9 @@
 
 // Use bool for openWindow and related logic
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
-    [self terminateOtherInstances];
+    if (!previewMode) {
+        [self terminateOtherInstances];
+    }
 
     bool openWindow = self.forceOpenWindow;
 
@@ -39,6 +72,8 @@
         [self createStatusItem];
     }
 
+    [NSApp setServicesProvider:self];
+    NSUpdateDynamicServices();
     QueueWindowDisplay(openWindow);
 }
 
@@ -110,17 +145,16 @@
     // Create menu bar status item
     self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSSquareStatusItemLength];
     // Load the template icon directly from the bundle
-    NSString *iconPath = [[NSBundle mainBundle] pathForResource:@"menu-bar" ofType:@"icns"];
-    NSImage *icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
-    if (icon) {
-        icon.template = true;
-        icon.size = NSMakeSize(18, 18);
-        self.statusItem.button.image = icon;
-    }
+    self.statusItem.button.image = CurrentMenuIcon();
 
-    self.statusItem.button.toolTip = @"Finicky";
+    self.statusItem.button.toolTip = @"Finicky Plus";
     NSMenu *menu = [[NSMenu alloc] init];
-    [menu addItemWithTitle:@"Show Window" action:@selector(showWindowAction:) keyEquivalent:@""];
+    menu.delegate = self;
+    [menu addItemWithTitle:@"Settings…" action:@selector(showWindowAction:) keyEquivalent:@","];
+    [menu addItemWithTitle:@"Open Clipboard Links…" action:@selector(openClipboardAction:) keyEquivalent:@""];
+    NSMenuItem *destinations = [menu addItemWithTitle:@"Default Browser / Profile" action:nil keyEquivalent:@""];
+    destinations.tag = 900;
+    destinations.submenu = [[NSMenu alloc] initWithTitle:@"Destinations"];
 
     char* configPath = GetCurrentConfigPath();
     if (configPath) {
@@ -132,21 +166,48 @@
     self.statusItem.menu = menu;
 }
 
+- (void)menuWillOpen:(NSMenu *)menu {
+    NSMenu *destinations = [menu itemWithTag:900].submenu;
+    if (!destinations) return;
+    [destinations removeAllItems];
+    char *encoded = GetMenuDestinations();
+    if (!encoded) return;
+    NSData *data = [[NSString stringWithUTF8String:encoded] dataUsingEncoding:NSUTF8StringEncoding];
+    free(encoded);
+    NSArray *items = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    for (NSDictionary *entry in items) {
+        NSMenuItem *item = [destinations addItemWithTitle:entry[@"name"] action:@selector(chooseDestination:) keyEquivalent:@""];
+        item.representedObject = entry[@"id"];
+        item.target = self;
+        item.toolTip = @"Select as default; hold Option to launch";
+    }
+}
+- (void)chooseDestination:(NSMenuItem *)sender {
+    BOOL launch = ([NSEvent modifierFlags] & NSEventModifierFlagOption) != 0;
+    ChooseMenuDestination((char *)[sender.representedObject UTF8String], launch);
+}
+- (void)openClipboardAction:(id)sender {
+    HandleURL("finicky-plus://clipboard?prompt=true", NULL, NULL, NULL, NULL, false);
+}
+- (void)openSelectedLinks:(NSPasteboard *)pasteboard userData:(NSString *)userData error:(NSString **)error {
+    NSString *text = [pasteboard stringForType:NSPasteboardTypeString];
+    if (text) HandleSelectedText((char *)text.UTF8String, false);
+}
+- (void)chooseForSelectedLinks:(NSPasteboard *)pasteboard userData:(NSString *)userData error:(NSString **)error {
+    NSString *text = [pasteboard stringForType:NSPasteboardTypeString];
+    if (text) HandleSelectedText((char *)text.UTF8String, true);
+}
+
 - (void)setErrorState:(bool)hasError {
     if (!self.statusItem) return;
 
-    NSString *iconPath = [[NSBundle mainBundle] pathForResource:@"menu-bar" ofType:@"icns"];
-    NSImage *baseIcon = [[NSBundle mainBundle] imageForResource:@"menu-bar"];
-    if (!baseIcon) {
-        // Fallback if imageForResource fails
-        baseIcon = [[NSImage alloc] initWithContentsOfFile:iconPath];
-    }
+    NSImage *baseIcon = CurrentMenuIcon();
     if (!baseIcon) return;
     baseIcon.size = NSMakeSize(18, 18);
 
     if (!hasError) {
         // Normal state: Pure template icon (automatically flips black/white)
-        baseIcon.template = YES;
+        baseIcon.template = ![menuIconStyle isEqualToString:@"browser"];
         self.statusItem.button.image = baseIcon;
         return;
     }
@@ -248,6 +309,9 @@
 }
 
 - (bool)application:(NSApplication *)sender openFile:(NSString *)filename {
+    // Cocoa also interprets positional CLI URLs as document arguments. Go has
+    // already enqueued those; do not turn them into duplicate local file URLs.
+    if ([NSProcessInfo.processInfo.arguments containsObject:filename]) return true;
     self.receivedURL = true;
 
     NSLog(@"Opening file: %@", filename);
@@ -295,9 +359,11 @@
         // Try to get the focused window title via Accessibility API
         AXUIElementRef appElement = AXUIElementCreateApplication(pid);
         if (appElement) {
+            AXUIElementSetMessagingTimeout(appElement, 0.1);
             AXUIElementRef focusedWindow = NULL;
             AXError err = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute, (CFTypeRef *)&focusedWindow);
             if (err == kAXErrorSuccess && focusedWindow) {
+                AXUIElementSetMessagingTimeout(focusedWindow, 0.1);
                 CFTypeRef titleValue = NULL;
                 AXError titleErr = AXUIElementCopyAttributeValue(focusedWindow, kAXTitleAttribute, &titleValue);
                 if (titleErr == kAXErrorSuccess && titleValue && CFGetTypeID(titleValue) == CFStringGetTypeID()) {
@@ -359,5 +425,15 @@ void SetStatusItemError(bool hasError) {
     dispatch_async(dispatch_get_main_queue(), ^{
         BrowseAppDelegate *app = (BrowseAppDelegate *)[NSApp delegate];
         [app setErrorState:hasError];
+    });
+}
+
+void SetMenuIcon(char *style, char *browser) {
+    NSString *styleValue = [NSString stringWithUTF8String:style ?: "default"];
+    NSString *browserValue = [NSString stringWithUTF8String:browser ?: ""];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        menuIconStyle = [styleValue copy]; menuBrowser = [browserValue copy];
+        BrowseAppDelegate *app = (BrowseAppDelegate *)NSApp.delegate;
+        [app setErrorState:false];
     });
 }

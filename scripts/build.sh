@@ -43,12 +43,12 @@ build_arch() {
 
     if [ "$ARCH" = "amd64" ]; then
         export GOARCH=amd64
-        export CGO_CFLAGS="-target x86_64-apple-macos12.0"
-        export CGO_LDFLAGS="-target x86_64-apple-macos12.0"
+        export CGO_CFLAGS="-target x86_64-apple-macos13.0"
+        export CGO_LDFLAGS="-target x86_64-apple-macos13.0"
     else
         export GOARCH=arm64
-        export CGO_CFLAGS="-mmacosx-version-min=12.0"
-        export CGO_LDFLAGS="-mmacosx-version-min=12.0"
+        export CGO_CFLAGS="-mmacosx-version-min=13.0"
+        export CGO_LDFLAGS="-mmacosx-version-min=13.0"
     fi
 
     export CGO_ENABLED=1
@@ -85,18 +85,16 @@ elif [ -n "$BUILD_TARGET_ARCH" ]; then
     copy_assets ${APP_NAME}
 
 else
-    # Local build — native arch only
+    # Local build — leave installation and the existing router untouched.
     APP_NAME="Finicky.app"
-    # Rename arch build to plain Finicky.app
-    build_arch arm64
-
-    rm -r apps/finicky/build/${APP_NAME}
-    mv apps/finicky/build/Finicky-arm64.app apps/finicky/build/${APP_NAME}
+    case "$(uname -m)" in
+      arm64) LOCAL_ARCH=arm64 ;;
+      x86_64) LOCAL_ARCH=amd64 ;;
+      *) echo "Unsupported architecture" >&2; exit 1 ;;
+    esac
+    build_arch "${LOCAL_ARCH}"
+    ditto "apps/finicky/build/Finicky-${LOCAL_ARCH}.app" "apps/finicky/build/${APP_NAME}"
     copy_assets ${APP_NAME}
-
-    # Replace existing app
-    rm -rf /Applications/Finicky.app
-    cp -r apps/finicky/build/Finicky.app /Applications/
 fi
 
 echo "Build complete ✨"

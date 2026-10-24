@@ -18,13 +18,20 @@ const DEFAULT_DURATION = 3000;
 function createToastStore() {
   const { subscribe, update } = writable<Toast[]>([]);
 
-  function show(message: string, type: ToastType = "info", extra?: string, duration = DEFAULT_DURATION) {
+  function show(
+    message: string,
+    type: ToastType = "info",
+    extra?: string,
+    duration = DEFAULT_DURATION,
+  ) {
     let id: string;
     let timeoutId: number;
 
     update((toasts) => {
       // Check if toast with same message and type already exists
-      const existing = toasts.find((t) => t.message === message && t.type === type);
+      const existing = toasts.find(
+        (t) => t.message === message && t.type === type,
+      );
 
       if (existing) {
         // Clear existing timeout
@@ -40,7 +47,9 @@ function createToastStore() {
 
         // Update the existing toast with new timeout and key to force animation restart
         return toasts.map((t) =>
-          t.id === existing.id ? { ...t, duration, timeoutId, key: Date.now() } : t
+          t.id === existing.id
+            ? { ...t, duration, timeoutId, key: Date.now() }
+            : t,
         );
       } else {
         // Create new toast
@@ -50,7 +59,15 @@ function createToastStore() {
           remove(id);
         }, duration) as unknown as number;
 
-        const newToast: Toast = { id, message, extra, type, duration, timeoutId, key: Date.now() };
+        const newToast: Toast = {
+          id,
+          message,
+          extra,
+          type,
+          duration,
+          timeoutId,
+          key: Date.now(),
+        };
         const updatedToasts = [...toasts, newToast];
 
         // Limit max toasts (remove oldest)
@@ -93,10 +110,14 @@ function createToastStore() {
   return {
     subscribe,
     show,
-    success: (message: string, duration?: number) => show(message, "success", duration),
-    error: (message: string, error: string, duration?: number) => show(message, "error", error, duration),
-    info: (message: string, duration?: number) => show(message, "info", duration),
-    warning: (message: string, duration?: number) => show(message, "warning", duration),
+    success: (message: string, duration?: number) =>
+      show(message, "success", undefined, duration),
+    error: (message: string, error: string, duration?: number) =>
+      show(message, "error", error, duration),
+    info: (message: string, duration?: number) =>
+      show(message, "info", undefined, duration),
+    warning: (message: string, duration?: number) =>
+      show(message, "warning", undefined, duration),
     remove,
     clear,
   };
