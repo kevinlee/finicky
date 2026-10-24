@@ -1,7 +1,30 @@
+import AppKit
 import Foundation
 import XCTest
 
 final class ShareActivationTests: XCTestCase {
+    func testPackagedShareExtensionHasDisplayNameAndReadableIcon() throws {
+        // Inspect the embedded product, so a missing resource-copy build phase
+        // fails even when the source plist and icon are present. This unhosted
+        // test bundle and the app are built beside each other by FinickyActions.
+        let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        let extensionURL = products.appendingPathComponent(
+            "Finicky Actions.app/Contents/PlugIns/Open with Finicky Plus.appex"
+        )
+        let extensionBundle = try XCTUnwrap(Bundle(url: extensionURL))
+        XCTAssertEqual(
+            extensionBundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
+            "Open with Finicky Plus"
+        )
+        let iconName = try XCTUnwrap(
+            extensionBundle.object(forInfoDictionaryKey: "CFBundleIconFile") as? String
+        )
+        let iconURL = try XCTUnwrap(extensionBundle.url(forResource: iconName, withExtension: "icns"))
+        let icon = try XCTUnwrap(NSImage(contentsOf: iconURL))
+        XCTAssertGreaterThan(icon.size.width, 0)
+        XCTAssertGreaterThan(icon.size.height, 0)
+    }
+
     func testSharedLinksCanOfferUnsupportedAlternateRepresentations() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

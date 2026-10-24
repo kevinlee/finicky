@@ -18,6 +18,8 @@ fi
 command -v xcodegen >/dev/null || { echo "XcodeGen is required. Install it with Homebrew: brew install xcodegen" >&2; exit 1; }
 mkdir -p "$build_root" "$output_root"
 xcodegen generate --spec "$integration_root/project.yml" --project "$integration_root"
+# A signing-identity change can re-sign standalone extensions without refreshing
+# their embedded copies. Start clean so the app receives the new signatures.
 xcodebuild \
   -project "$integration_root/FinickyIntegrations.xcodeproj" \
   -scheme FinickyActions \
@@ -27,7 +29,7 @@ xcodebuild \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="$signing_identity" \
   DEVELOPMENT_TEAM="${FINICKY_DEVELOPMENT_TEAM:-}" \
-  build
+  clean build
 
 app_path="$build_root/DerivedData/Build/Products/$configuration/Finicky Actions.app"
 ditto "$app_path" "$output_root/Finicky Actions.app"
