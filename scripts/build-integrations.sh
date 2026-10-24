@@ -32,8 +32,11 @@ xcodebuild \
 app_path="$build_root/DerivedData/Build/Products/$configuration/Finicky Actions.app"
 ditto "$app_path" "$output_root/Finicky Actions.app"
 codesign --verify --deep --strict "$output_root/Finicky Actions.app"
-signing_check_args=()
-if [[ "$require_runtime_signing" == "1" ]]; then signing_check_args+=(--require-team); fi
-bash "$repo_root/scripts/check-integration-signing.sh" "${signing_check_args[@]}" "$output_root/Finicky Actions.app"
+if [[ "$require_runtime_signing" == "1" ]]; then
+  bash "$repo_root/scripts/check-integration-signing.sh" --require-team "$output_root/Finicky Actions.app"
+else
+  # macOS's system Bash 3.2 treats an empty array as unset under nounset.
+  bash "$repo_root/scripts/check-integration-signing.sh" "$output_root/Finicky Actions.app"
+fi
 echo "Built $output_root/Finicky Actions.app"
 echo "This companion has not been installed or enabled. See apps/integrations/README.md for setup."
