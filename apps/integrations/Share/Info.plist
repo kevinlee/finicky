@@ -30,6 +30,11 @@
 		<dict>
 			<key>NSExtensionActivationRule</key>
 			<dict>
+				<!-- A host may offer a URL/text alongside an image representation.
+				     Version 2 matches a supported representation; the default version 1
+				     requires support for every representation and hides this extension. -->
+				<key>NSExtensionActivationDictionaryVersion</key>
+				<integer>2</integer>
 				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
 				<integer>256</integer>
 				<key>NSExtensionActivationSupportsWebPageWithMaxCount</key>
