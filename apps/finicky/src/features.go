@@ -132,7 +132,8 @@ func routeRequest(info URLInfo) {
 	if modifierHeld {
 		if f.AlternativeBrowser != "" && f.AlternativeBrowser != "prompt" {
 			prompt = false
-			target = &browser.BrowserConfig{Name: f.AlternativeBrowser, AppType: appType(f.AlternativeBrowser), Profile: f.AlternativeProfile, ProfileDirectory: f.AlternativeProfileDirectory, Private: f.AlternativePrivate, URL: target.URL}
+			alternative := alternativeBrowserTarget(*target, r, f)
+			target = &alternative
 		} else {
 			prompt = true
 		}
@@ -213,16 +214,31 @@ func requestForPicker(target browser.BrowserConfig, r urlrequest.Request, backgr
 	}
 }
 
-// Choosing a destination must not discard the link's required launch modes.
+// Changing the destination must not discard the link's required launch modes.
 // Browser-specific arguments and profile identity remain those of the choice.
-func selectedPickerTarget(resolved, selected browser.BrowserConfig, r urlrequest.Request, choice picker.Selection) browser.BrowserConfig {
+func retargetURL(resolved, selected browser.BrowserConfig, r urlrequest.Request) browser.BrowserConfig {
 	selected.URL = resolved.URL
 	selected.MatchedRule = resolved.MatchedRule
-	selected.Private = selected.Private || resolved.Private || r.Private || choice.Private
-	selected.NewWindow = selected.NewWindow || resolved.NewWindow || r.NewWindow || choice.NewWindow
+	selected.Private = selected.Private || resolved.Private || r.Private
+	selected.NewWindow = selected.NewWindow || resolved.NewWindow || r.NewWindow
 	if selected.OpenInBackground == nil {
 		selected.OpenInBackground = resolved.OpenInBackground
 	}
+	return selected
+}
+
+func alternativeBrowserTarget(resolved browser.BrowserConfig, r urlrequest.Request, f *rules.Features) browser.BrowserConfig {
+	return retargetURL(resolved, browser.BrowserConfig{
+		Name: f.AlternativeBrowser, AppType: appType(f.AlternativeBrowser),
+		Profile: f.AlternativeProfile, ProfileDirectory: f.AlternativeProfileDirectory,
+		Private: f.AlternativePrivate,
+	}, r)
+}
+
+func selectedPickerTarget(resolved, selected browser.BrowserConfig, r urlrequest.Request, choice picker.Selection) browser.BrowserConfig {
+	selected = retargetURL(resolved, selected, r)
+	selected.Private = selected.Private || choice.Private
+	selected.NewWindow = selected.NewWindow || choice.NewWindow
 	if choice.BackgroundSpecified || choice.Background {
 		background := choice.Background
 		selected.OpenInBackground = &background
@@ -355,21 +371,17 @@ func applyAndSaveDefaultRequest(rf rules.RulesFile, r urlrequest.Request, save f
 	if err = applyDefaultRequest(&rf, r); err != nil {
 		return err
 	}
-	if err = save(rf); err != nil {
-		var appliedErr *savedRulesApplyError
-		if newSnapshot && !errors.As(err, &appliedErr) {
-			if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
-				return errors.Join(err, fmt.Errorf("could not remove unused Focus snapshot: %w", removeErr))
-			}
-		}
-		return err
-	}
-	if r.Focus == "clear" {
-		if err = os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("could not clear restored Focus snapshot: %w", err)
+	saveErr := save(rf)
+	var appliedErr *savedRulesApplyError
+	persisted := saveErr == nil || errors.As(saveErr, &appliedErr)
+	// Once restoration reached disk, its snapshot is consumed even if applying
+	// a runtime option failed. A later Focus must capture the next user's default.
+	if r.Focus == "clear" && persisted || newSnapshot && !persisted {
+		if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
+			return errors.Join(saveErr, fmt.Errorf("could not clear Focus snapshot: %w", removeErr))
 		}
 	}
-	return nil
+	return saveErr
 }
 
 // Focus filters persist the previous default so leaving a Focus restores it,

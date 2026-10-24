@@ -177,12 +177,21 @@ func main() {
 	window.SaveRulesHandler = func(rf rules.RulesFile) error {
 		vmMu.Lock()
 		defer vmMu.Unlock()
+		configPath := ""
+		if configInfo != nil {
+			configPath = configInfo.ConfigPath
+		}
+		// Imports can remove overrides. Publish the resulting effective values,
+		// including when a runtime side effect fails after the VM was updated.
+		defer func() { publishConfiguration(vm, configPath) }()
 		slog.Debug("Rules updated", "count", len(rf.Rules))
 		resolver.SetCachedRules(rf)
 		refreshMenuIcon(rf)
 		if vm == nil || !vm.IsJSConfig() {
 			if rf.DefaultBrowser == "" && len(rf.Rules) == 0 && rf.Options == nil && (rf.Features == nil || rf.Features.TransformScript == "") {
 				vm = nil
+				configPath = ""
+				shouldKeepRunning.Store(vm.GetAllConfigOptions().KeepRunning)
 				return logger.SetupFile(false)
 			}
 			script, err := rules.ToJSConfigScript(rf, namespace)
@@ -196,6 +205,7 @@ func main() {
 				return err
 			}
 			vm = newVM
+			configPath, _ = rules.GetPath()
 			if vm != nil {
 				opts := vm.GetAllConfigOptions()
 				shouldKeepRunning.Store(opts.KeepRunning)
@@ -511,6 +521,7 @@ func setupVM(cfw *config.ConfigFileWatcher, namespace string) (*config.VM, error
 	}
 
 	if newVM == nil {
+		publishConfiguration(nil, "")
 		return nil, nil
 	}
 	if rf, loadErr := rules.Load(); loadErr == nil {
@@ -519,34 +530,47 @@ func setupVM(cfw *config.ConfigFileWatcher, namespace string) (*config.VM, error
 		}
 	}
 
-	cs := newVM.GetConfigState()
-	if cs != nil {
-		configInfo = &ConfigInfo{
-			Handlers:       cs.Handlers,
-			Rewrites:       cs.Rewrites,
-			DefaultBrowser: cs.DefaultBrowser,
-			ConfigPath:     configPath,
-		}
-	}
-
 	opts := newVM.GetAllConfigOptions()
 	logRequests = opts.LogRequests
+	publishConfiguration(newVM, configPath)
 
-	window.SendMessageToWebView("config", map[string]interface{}{
-		"handlers":       configInfo.Handlers,
-		"rewrites":       configInfo.Rewrites,
-		"defaultBrowser": configInfo.DefaultBrowser,
-		"configPath":     util.ShortenPath(configInfo.ConfigPath),
-		"isJSConfig":     newVM.IsJSConfig(),
+	return newVM, nil
+}
+
+// configurationSnapshot keeps the complete configuration message together so
+// refreshing effective options cannot erase the source path or routing counts.
+// Callers must serialize access to target's runtime.
+func configurationSnapshot(target *config.VM, path string) (*ConfigInfo, map[string]interface{}) {
+	info := &ConfigInfo{DefaultBrowser: "Safari", ConfigPath: path}
+	isJSConfig := false
+	if target != nil {
+		isJSConfig = target.IsJSConfig()
+		if state := target.GetConfigState(); state != nil {
+			info.Handlers = state.Handlers
+			info.Rewrites = state.Rewrites
+			info.DefaultBrowser = state.DefaultBrowser
+		}
+	}
+	opts := target.GetAllConfigOptions()
+	return info, map[string]interface{}{
+		"handlers":       info.Handlers,
+		"rewrites":       info.Rewrites,
+		"defaultBrowser": info.DefaultBrowser,
+		"configPath":     util.ShortenPath(info.ConfigPath),
+		"isJSConfig":     isJSConfig,
 		"options": map[string]interface{}{
 			"keepRunning":     opts.KeepRunning,
 			"hideIcon":        opts.HideIcon,
 			"logRequests":     opts.LogRequests,
 			"checkForUpdates": opts.CheckForUpdates,
 		},
-	})
+	}
+}
 
-	return newVM, nil
+func publishConfiguration(target *config.VM, path string) {
+	info, message := configurationSnapshot(target, path)
+	configInfo = info
+	window.SendMessageToWebView("config", message)
 }
 
 func applyVisualOptions(target *config.VM, rf rules.RulesFile) error {

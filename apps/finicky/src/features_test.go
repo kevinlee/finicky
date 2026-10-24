@@ -111,6 +111,39 @@ func TestPickerPreservesFavoriteAndSelectedModes(t *testing.T) {
 	}
 }
 
+func TestAlternativeBrowserPreservesRequiredModes(t *testing.T) {
+	background := true
+	rule := 2
+	for _, modeSource := range []string{"resolved", "request", "alternative"} {
+		t.Run(modeSource, func(t *testing.T) {
+			resolved := browser.BrowserConfig{
+				Name: "Google Chrome", ProfileDirectory: "Profile 1", URL: "https://example.com/private",
+				OpenInBackground: &background, MatchedRule: &rule, Args: []string{"--browser-specific-flag"},
+			}
+			request := urlrequest.Request{}
+			features := &rules.Features{AlternativeBrowser: "com.microsoft.edgemac", AlternativeProfile: "Work", AlternativeProfileDirectory: "Profile 2"}
+			switch modeSource {
+			case "resolved":
+				resolved.Private, resolved.NewWindow = true, true
+			case "request":
+				request.Private, request.NewWindow = true, true
+			case "alternative":
+				features.AlternativePrivate = true
+			}
+			got := alternativeBrowserTarget(resolved, request, features)
+			if !got.Private || got.NewWindow != (modeSource != "alternative") || got.OpenInBackground == nil || !*got.OpenInBackground {
+				t.Fatalf("alternative discarded required modes: %+v", got)
+			}
+			if got.Name != features.AlternativeBrowser || got.AppType != "bundleId" || got.Profile != "Work" || got.ProfileDirectory != "Profile 2" || len(got.Args) != 0 {
+				t.Fatalf("alternative inherited the wrong browser identity or arguments: %+v", got)
+			}
+			if got.URL != resolved.URL || got.MatchedRule == nil || *got.MatchedRule != rule {
+				t.Fatalf("alternative lost URL or rule provenance: %+v", got)
+			}
+		})
+	}
+}
+
 func TestRemovingVisualOptionsRestoresJSOptions(t *testing.T) {
 	target, err := config.NewFromScript(finickyConfigAPIJS, "finickyConfig", `var finickyConfig = {
 		defaultBrowser: "Safari",
@@ -267,5 +300,89 @@ func TestFocusApplyFailureAfterSaveKeepsRestorationSnapshot(t *testing.T) {
 	rf, err = rules.Load()
 	if err != nil || rf.DefaultProfileDirectory != "Default" {
 		t.Fatalf("persisted Focus lost restoration after apply failure: %+v %v", rf, err)
+	}
+}
+
+func TestPersistedFocusClearConsumesSnapshotDespiteApplyError(t *testing.T) {
+	rules.SetCustomPath(filepath.Join(t.TempDir(), "rules.json"))
+	t.Cleanup(func() { rules.SetCustomPath("") })
+	rf := rules.RulesFile{DefaultBrowser: "Google Chrome", DefaultProfileDirectory: "Default"}
+	activate := urlrequest.Request{Focus: "active", Browser: "Google Chrome", ProfileDirectory: "Profile 1"}
+	if err := applyAndSaveDefaultRequest(rf, activate, rules.Save); err != nil {
+		t.Fatal(err)
+	}
+	rf, err := rules.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("could not apply runtime option")
+	saveThenFail := func(proposed rules.RulesFile) error {
+		if err := rules.Save(proposed); err != nil {
+			return err
+		}
+		return &savedRulesApplyError{wantErr}
+	}
+	if err := applyAndSaveDefaultRequest(rf, urlrequest.Request{Focus: "clear"}, saveThenFail); !errors.Is(err, wantErr) {
+		t.Fatalf("runtime error was not preserved: %v", err)
+	}
+	path, _ := focusDefaultPath()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("persisted restore left a stale snapshot: %v", err)
+	}
+	rf, err = rules.Load()
+	if err != nil || rf.DefaultProfileDirectory != "Default" {
+		t.Fatalf("restore was not persisted: %+v %v", rf, err)
+	}
+	// A later manual default must be captured by the next Focus session.
+	rf.DefaultProfileDirectory = "Profile 2"
+	if err := rules.Save(rf); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyAndSaveDefaultRequest(rf, activate, rules.Save); err != nil {
+		t.Fatal(err)
+	}
+	rf, err = rules.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyAndSaveDefaultRequest(rf, urlrequest.Request{Focus: "clear"}, rules.Save); err != nil {
+		t.Fatal(err)
+	}
+	rf, err = rules.Load()
+	if err != nil || rf.DefaultProfileDirectory != "Profile 2" {
+		t.Fatalf("next Focus restored an older default: %+v %v", rf, err)
+	}
+}
+
+func TestFailedFocusClearKeepsSnapshotUntilRestoreIsSaved(t *testing.T) {
+	rules.SetCustomPath(filepath.Join(t.TempDir(), "rules.json"))
+	t.Cleanup(func() { rules.SetCustomPath("") })
+	rf := rules.RulesFile{DefaultBrowser: "Google Chrome", DefaultProfileDirectory: "Default"}
+	if err := applyAndSaveDefaultRequest(rf, urlrequest.Request{Focus: "active", Browser: "Google Chrome", ProfileDirectory: "Profile 1"}, rules.Save); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := focusDefaultPath()
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rf, err = rules.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("write failed")
+	if err := applyAndSaveDefaultRequest(rf, urlrequest.Request{Focus: "clear"}, func(rules.RulesFile) error { return wantErr }); !errors.Is(err, wantErr) {
+		t.Fatalf("save error was not preserved: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("failed restore lost its snapshot: %s %v", after, err)
+	}
+	if err := applyAndSaveDefaultRequest(rf, urlrequest.Request{Focus: "clear"}, rules.Save); err != nil {
+		t.Fatal(err)
+	}
+	rf, err = rules.Load()
+	if err != nil || rf.DefaultProfileDirectory != "Default" {
+		t.Fatalf("retry did not restore the original default: %+v %v", rf, err)
 	}
 }
