@@ -30,6 +30,9 @@ type Destination struct {
 type Request struct {
 	URL          string        `json:"url"`
 	Destinations []Destination `json:"destinations"`
+	Private      bool          `json:"private"`
+	NewWindow    bool          `json:"newWindow"`
+	Background   bool          `json:"background"`
 }
 
 // Index is zero-based for destination choices and -1 for other actions.
@@ -43,6 +46,9 @@ type Selection struct {
 	Private    bool
 	NewWindow  bool
 	Background bool
+	// BackgroundSpecified distinguishes an unchecked control from a caller
+	// that supplied no background preference.
+	BackgroundSpecified bool
 }
 
 const (
@@ -53,6 +59,7 @@ const (
 	flagPrivate
 	flagNewWindow
 	flagBackground
+	flagBackgroundSpecified
 )
 
 var nextID atomic.Uint64
@@ -124,5 +131,6 @@ func FinickyPickerDidSelect(id C.ulonglong, index C.int, flags C.uint) {
 		Remember: f&flagRemember != 0, Copy: f&flagCopy != 0,
 		Share: f&flagShare != 0, Private: f&flagPrivate != 0,
 		NewWindow: f&flagNewWindow != 0, Background: f&flagBackground != 0,
+		BackgroundSpecified: f&flagBackgroundSpecified != 0,
 	})
 }

@@ -18,6 +18,7 @@
     defaultDestinationValue,
     matchesFavorite,
     effectiveOption,
+    updateRulesForProfile,
   } from "./lib/settingsModel";
   import {
     testProfileDescription,
@@ -705,13 +706,7 @@
         );
       else model.profiles.push(next);
       if (previous && updateReferences && !sameTarget(previous, next)) {
-        model.rules = model.rules.map((rule) => {
-          if (!sameTarget(rule, previous)) return rule;
-          const updated = { ...rule };
-          delete updated.profile;
-          delete updated.profileDirectory;
-          return { ...updated, ...cleanTarget(next) };
-        });
+        model.rules = updateRulesForProfile(model.rules, previous, next);
         if (
           matchesFavorite(previous, {
             browser: model.defaultBrowser,

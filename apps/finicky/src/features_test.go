@@ -1,9 +1,13 @@
 package main
 
 import (
+	"errors"
 	"finicky/browser"
+	"finicky/config"
+	"finicky/picker"
 	"finicky/rules"
 	"finicky/urlrequest"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -49,5 +53,219 @@ func TestNameFavoriteUsesOnlyUnambiguousDiscoveredProfile(t *testing.T) {
 	profiles = append(profiles, browser.BrowserProfile{Name: "Work", Profile: "Work", ProfileDirectory: "Profile 3"})
 	if got := stableFavorite(target, profiles); got.ProfileDirectory != "" {
 		t.Fatal("ambiguous display name selected a directory")
+	}
+}
+
+func TestPickerPreservesRequiredModesAndChosenProfile(t *testing.T) {
+	background := true
+	rule := 0
+	resolved := browser.BrowserConfig{
+		Name: "Google Chrome", ProfileDirectory: "Profile 1", URL: "https://example.com/private",
+		Private: true, NewWindow: true, OpenInBackground: &background, MatchedRule: &rule,
+		Args: []string{"--browser-specific-flag"},
+	}
+	chosen := browser.BrowserConfig{Name: "Microsoft Edge", ProfileDirectory: "Profile 2"}
+	got := selectedPickerTarget(resolved, chosen, urlrequest.Request{}, picker.Selection{})
+	if !got.Private || !got.NewWindow || got.OpenInBackground == nil || !*got.OpenInBackground {
+		t.Fatalf("picker discarded required modes: %+v", got)
+	}
+	if got.Name != chosen.Name || got.ProfileDirectory != chosen.ProfileDirectory || len(got.Args) != 0 {
+		t.Fatalf("picker replaced chosen browser identity with the resolved target: %+v", got)
+	}
+	if got.URL != resolved.URL || got.MatchedRule == nil || *got.MatchedRule != rule {
+		t.Fatalf("picker lost link or rule provenance: %+v", got)
+	}
+}
+
+func TestPickerShowsEffectiveModesAndAllowsExplicitBackgroundChange(t *testing.T) {
+	for _, configuredBackground := range []bool{false, true} {
+		resolved := browser.BrowserConfig{URL: "https://example.com", OpenInBackground: &configuredBackground}
+		request := urlrequest.Request{Private: true, NewWindow: true}
+		initial := requestForPicker(resolved, request, !configuredBackground, nil)
+		if !initial.Private || !initial.NewWindow || initial.Background != configuredBackground {
+			t.Fatalf("picker did not show effective launch modes: %+v", initial)
+		}
+		// An ordinary selection returns the initial controls unchanged.
+		choice := picker.Selection{Background: initial.Background, BackgroundSpecified: true}
+		got := selectedPickerTarget(resolved, browser.BrowserConfig{Name: "Google Chrome"}, request, choice)
+		if !got.Private || !got.NewWindow || got.OpenInBackground == nil || *got.OpenInBackground != configuredBackground {
+			t.Fatalf("ordinary selection changed requested modes: %+v", got)
+		}
+		choice.Background = !initial.Background
+		got = selectedPickerTarget(resolved, browser.BrowserConfig{Name: "Google Chrome"}, request, choice)
+		if *got.OpenInBackground != choice.Background {
+			t.Fatal("explicit background control change was ignored")
+		}
+	}
+}
+
+func TestPickerPreservesFavoriteAndSelectedModes(t *testing.T) {
+	chosen := browser.BrowserConfig{Name: "Google Chrome", Private: true, NewWindow: true}
+	got := selectedPickerTarget(browser.BrowserConfig{}, chosen, urlrequest.Request{}, picker.Selection{})
+	if !got.Private || !got.NewWindow {
+		t.Fatal("favorite modes were discarded")
+	}
+	got = selectedPickerTarget(browser.BrowserConfig{}, browser.BrowserConfig{}, urlrequest.Request{}, picker.Selection{Private: true, NewWindow: true, Background: true})
+	if !got.Private || !got.NewWindow || got.OpenInBackground == nil || !*got.OpenInBackground {
+		t.Fatal("explicit picker modes were discarded")
+	}
+}
+
+func TestRemovingVisualOptionsRestoresJSOptions(t *testing.T) {
+	target, err := config.NewFromScript(finickyConfigAPIJS, "finickyConfig", `var finickyConfig = {
+		defaultBrowser: "Safari",
+		options: { logRequests: false, hideIcon: false, checkForUpdates: true, keepRunning: true, transformScript: "return url;" }
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target.SetIsJSConfig(true)
+	on, off := true, false
+	all := rules.RulesFile{Options: &rules.Options{LogRequests: &on, HideIcon: &on, CheckForUpdates: &off, KeepRunning: &off}}
+	if err := applyVisualOptions(target, all); err != nil {
+		t.Fatal(err)
+	}
+	got := target.GetAllConfigOptions()
+	if !got.LogRequests || !got.HideIcon || got.CheckForUpdates || got.KeepRunning {
+		t.Fatalf("overrides did not apply: %+v", got)
+	}
+	// Importing a partial options object removes the previous logging override.
+	if err := applyVisualOptions(target, rules.RulesFile{Options: &rules.Options{HideIcon: &on}}); err != nil {
+		t.Fatal(err)
+	}
+	got = target.GetAllConfigOptions()
+	if got.LogRequests || !got.HideIcon || !got.CheckForUpdates || !got.KeepRunning {
+		t.Fatalf("removed options remained overridden: %+v", got)
+	}
+	if err := applyVisualOptions(target, rules.RulesFile{}); err != nil {
+		t.Fatal(err)
+	}
+	got = target.GetAllConfigOptions()
+	if got.LogRequests || got.HideIcon || !got.CheckForUpdates || !got.KeepRunning {
+		t.Fatalf("nil options did not restore the JS configuration: %+v", got)
+	}
+	transform, err := target.Runtime().RunString("finalConfig.options.transformScript")
+	if err != nil || transform.String() != "return url;" {
+		t.Fatalf("unrelated JS option was lost: %v %v", transform, err)
+	}
+}
+
+func TestRemovingVisualOptionsRestoresImplicitDefaults(t *testing.T) {
+	target, err := config.NewFromScript(finickyConfigAPIJS, "finickyConfig", `var finickyConfig = { defaultBrowser: "Safari" }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	on := true
+	for _, rf := range []rules.RulesFile{{Options: &rules.Options{LogRequests: &on}}, {}} {
+		if err := applyVisualOptions(target, rf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if target.GetAllConfigOptions().LogRequests {
+		t.Fatal("missing JS logging option retained a removed true override")
+	}
+}
+
+func TestRejectedFocusActivationDoesNotPoisonLaterRestoration(t *testing.T) {
+	rules.SetCustomPath(filepath.Join(t.TempDir(), "rules.json"))
+	t.Cleanup(func() { rules.SetCustomPath("") })
+	rf := rules.RulesFile{DefaultBrowser: "Google Chrome", DefaultProfileDirectory: "Default"}
+	path, err := focusDefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range []urlrequest.Request{
+		{Focus: "active", Browser: "Safari", ProfileDirectory: "Default"},
+		{Focus: "active", Browser: "Safari", Private: true},
+		{Focus: "active", Browser: "Finicky Plus"},
+	} {
+		if err := applyAndSaveDefaultRequest(rf, request, rules.Save); err == nil {
+			t.Fatalf("invalid target was saved: %+v", request)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("rejected activation left a snapshot: %v", err)
+		}
+	}
+	// The user's next default is the one a later valid Focus must restore.
+	rf.DefaultProfileDirectory = "Profile 1"
+	if err := rules.Save(rf); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyAndSaveDefaultRequest(rf, urlrequest.Request{Focus: "active", Browser: "Google Chrome", ProfileDirectory: "Profile 2"}, rules.Save); err != nil {
+		t.Fatal(err)
+	}
+	rf, err = rules.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyAndSaveDefaultRequest(rf, urlrequest.Request{Focus: "clear"}, rules.Save); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := rules.Load()
+	if err != nil || restored.DefaultProfileDirectory != "Profile 1" {
+		t.Fatalf("wrong default restored: %+v %v", restored, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("restored Focus retained its snapshot: %v", err)
+	}
+}
+
+func TestFocusSaveFailureRemovesOnlyNewSnapshot(t *testing.T) {
+	rules.SetCustomPath(filepath.Join(t.TempDir(), "rules.json"))
+	t.Cleanup(func() { rules.SetCustomPath("") })
+	rf := rules.RulesFile{DefaultBrowser: "Google Chrome", DefaultProfileDirectory: "Default"}
+	request := urlrequest.Request{Focus: "active", Browser: "Google Chrome", ProfileDirectory: "Profile 1"}
+	wantErr := errors.New("write failed")
+	failSave := func(rules.RulesFile) error { return wantErr }
+	if err := applyAndSaveDefaultRequest(rf, request, failSave); !errors.Is(err, wantErr) {
+		t.Fatalf("save failure lost: %v", err)
+	}
+	path, _ := focusDefaultPath()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("failed initial activation left a snapshot: %v", err)
+	}
+	if err := applyAndSaveDefaultRequest(rf, request, rules.Save); err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rf.DefaultProfileDirectory = "Profile 1"
+	request.ProfileDirectory = "Profile 2"
+	if err := applyAndSaveDefaultRequest(rf, request, failSave); !errors.Is(err, wantErr) {
+		t.Fatalf("repeated activation failure lost: %v", err)
+	}
+	preserved, err := os.ReadFile(path)
+	if err != nil || string(preserved) != string(original) {
+		t.Fatalf("failed repeated activation changed the valid snapshot: %s %v", preserved, err)
+	}
+}
+
+func TestFocusApplyFailureAfterSaveKeepsRestorationSnapshot(t *testing.T) {
+	rules.SetCustomPath(filepath.Join(t.TempDir(), "rules.json"))
+	t.Cleanup(func() { rules.SetCustomPath("") })
+	rf := rules.RulesFile{DefaultBrowser: "Google Chrome", DefaultProfileDirectory: "Default"}
+	wantErr := errors.New("could not apply runtime option")
+	saveThenFail := func(proposed rules.RulesFile) error {
+		if err := rules.Save(proposed); err != nil {
+			return err
+		}
+		return &savedRulesApplyError{wantErr}
+	}
+	err := applyAndSaveDefaultRequest(rf, urlrequest.Request{Focus: "active", Browser: "Google Chrome", ProfileDirectory: "Profile 1"}, saveThenFail)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("apply error lost: %v", err)
+	}
+	rf, err = rules.Load()
+	if err != nil || rf.DefaultProfileDirectory != "Profile 1" {
+		t.Fatalf("test did not persist active default: %+v %v", rf, err)
+	}
+	if err := applyAndSaveDefaultRequest(rf, urlrequest.Request{Focus: "clear"}, rules.Save); err != nil {
+		t.Fatal(err)
+	}
+	rf, err = rules.Load()
+	if err != nil || rf.DefaultProfileDirectory != "Default" {
+		t.Fatalf("persisted Focus lost restoration after apply failure: %+v %v", rf, err)
 	}
 }

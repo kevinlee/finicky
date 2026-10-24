@@ -5,6 +5,7 @@ import {
   isPromptResult,
   testResultTarget,
 } from "../src/lib/testResult.ts";
+import { matchesFavorite } from "../src/lib/settingsModel.ts";
 
 test("recognizes the profile directory in an existing JavaScript launch configuration", () => {
   const result = {
@@ -20,8 +21,39 @@ test("recognizes the profile directory in an existing JavaScript launch configur
     browser: "Google Chrome",
     profile: undefined,
     profileDirectory: "Profile 2",
+    private: undefined,
   });
   assert.equal(testProfileDescription(result), "Profile 2");
+});
+
+test("private test results select the private favorite and describe launch flags", () => {
+  const regular = {
+    id: "regular",
+    browser: "Google Chrome",
+    profileDirectory: "Profile 2",
+  };
+  const privateFavorite = { ...regular, id: "private", private: true };
+  const result = {
+    browser: "Google Chrome",
+    profileDirectory: "Profile 2",
+    private: true,
+    newWindow: true,
+  };
+  const target = testResultTarget(result);
+  assert.equal(
+    [regular, privateFavorite].find((profile) =>
+      matchesFavorite(profile, target),
+    )?.id,
+    "private",
+  );
+  assert.equal(
+    testProfileDescription(result),
+    "Profile 2 · Private browsing · New window",
+  );
+  assert.equal(
+    testProfileDescription({ ...result, private: false, newWindow: false }),
+    "Profile 2",
+  );
 });
 
 test("supports a separate profile argument and preserves explicit resolved profiles", () => {

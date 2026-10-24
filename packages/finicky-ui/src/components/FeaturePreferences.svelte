@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from "./StudioIcon.svelte";
-  import { matchesFavorite } from "../lib/settingsModel";
+  import { alternativeDestinationValue } from "../lib/settingsModel";
   import {
     effectiveFeatures,
     parseShorteners,
@@ -19,6 +19,7 @@
   export let onClipboard: () => void;
   let shortenersText = "";
   let lastShorteners: string[] | undefined;
+  let editingCustomAlternate = false;
   $: current = effectiveFeatures(features);
   $: if (current.extraShorteners !== lastShorteners) {
     lastShorteners = current.extraShorteners;
@@ -30,19 +31,11 @@
     lastShorteners = parsed;
     update({ extraShorteners: parsed });
   }
-  $: alternate = profiles.find((profile) =>
-    matchesFavorite(profile, {
-      browser: current.alternativeBrowser || "",
-      profile: current.alternativeProfile,
-      profileDirectory: current.alternativeProfileDirectory,
-      private: current.alternativePrivate,
-    }),
+  $: alternateValue = alternativeDestinationValue(
+    current,
+    profiles,
+    editingCustomAlternate,
   );
-  $: alternateValue = alternate
-    ? `profile:${alternate.id}`
-    : current.alternativeBrowser
-      ? "custom"
-      : "none";
   const toggles: {
     key:
       | "stripTracking"
@@ -83,6 +76,7 @@
     onChange({ ...current, ...patch });
   }
   function chooseAlternate(value: string) {
+    editingCustomAlternate = value === "custom";
     if (value === "custom") {
       update({ alternativeBrowser: current.alternativeBrowser || "Safari" });
       return;

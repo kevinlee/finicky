@@ -4,6 +4,8 @@ export interface NativeTestResult {
   browser?: string;
   profile?: string;
   profileDirectory?: string;
+  private?: boolean;
+  newWindow?: boolean;
   args?: string[] | null;
   error?: string;
   openInBackground?: boolean;
@@ -32,6 +34,7 @@ export function testResultTarget(result: NativeTestResult | null) {
     browser: isPromptResult(result) ? "prompt" : result?.browser || "",
     profile: result?.profile,
     profileDirectory: directory,
+    private: result?.private,
   };
 }
 
@@ -40,9 +43,15 @@ export function testProfileDescription(
 ): string {
   if (isPromptResult(result)) return "Choose browser / profile";
   const target = testResultTarget(result);
-  return (
+  const description =
     target.profileDirectory ||
     target.profile ||
-    (result?.args?.length ? "Custom launch arguments" : "Last used profile")
-  );
+    (result?.args?.length ? "Custom launch arguments" : "Last used profile");
+  return [
+    description,
+    result?.private ? "Private browsing" : "",
+    result?.newWindow ? "New window" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }

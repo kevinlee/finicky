@@ -10,7 +10,6 @@ import "C"
 
 import (
 	_ "embed"
-	"encoding/json"
 	"finicky/browser"
 	"finicky/browseraccess"
 	"finicky/config"
@@ -356,6 +355,8 @@ func TestURLInternal(urlString string, opener *resolver.OpenerInfo) {
 		"openInBackground": config.OpenInBackground,
 		"profile":          config.Profile,
 		"profileDirectory": config.ProfileDirectory,
+		"private":          config.Private,
+		"newWindow":        config.NewWindow,
 		"args":             config.Args,
 	})
 }
@@ -549,13 +550,23 @@ func setupVM(cfw *config.ConfigFileWatcher, namespace string) (*config.VM, error
 }
 
 func applyVisualOptions(target *config.VM, rf rules.RulesFile) error {
-	if target == nil || rf.Options == nil {
+	if target == nil {
 		return nil
 	}
-	data, err := json.Marshal(rf.Options)
-	if err != nil {
-		return err
+	overrides := make(map[string]interface{})
+	if rf.Options != nil {
+		if rf.Options.KeepRunning != nil {
+			overrides["keepRunning"] = *rf.Options.KeepRunning
+		}
+		if rf.Options.HideIcon != nil {
+			overrides["hideIcon"] = *rf.Options.HideIcon
+		}
+		if rf.Options.LogRequests != nil {
+			overrides["logRequests"] = *rf.Options.LogRequests
+		}
+		if rf.Options.CheckForUpdates != nil {
+			overrides["checkForUpdates"] = *rf.Options.CheckForUpdates
+		}
 	}
-	_, err = target.Runtime().RunString("finalConfig.options = Object.assign({}, finalConfig.options || {}, " + string(data) + ")")
-	return err
+	return target.ApplyOptionOverrides(overrides)
 }

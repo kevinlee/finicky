@@ -8,6 +8,7 @@ import "C"
 
 import (
 	"encoding/json"
+	"errors"
 	"finicky/browser"
 	"finicky/browseraccess"
 	"finicky/linkfeatures"
@@ -78,15 +79,8 @@ func routeRequest(info URLInfo) {
 		}
 		return
 	case "set-default":
-		if err = applyDefaultRequest(&rf, r); err != nil {
+		if err = applyAndSaveDefaultRequest(rf, r, saveAndApply); err != nil {
 			handleRuntimeError(err)
-			return
-		}
-		if err = saveAndApply(rf); err != nil {
-			handleRuntimeError(err)
-		} else if r.Focus == "clear" {
-			path, _ := rules.GetPath()
-			_ = os.Remove(filepath.Join(filepath.Dir(path), "focus-default.json"))
 		}
 		return
 	}
@@ -145,7 +139,7 @@ func routeRequest(info URLInfo) {
 	}
 	if prompt {
 		destinations := pickerDestinations(rf)
-		choice := <-picker.Show(picker.Request{URL: target.URL, Destinations: destinations})
+		choice := <-picker.Show(requestForPicker(*target, r, info.OpenInBackground, destinations))
 		if choice.Cancelled {
 			return
 		}
@@ -160,14 +154,7 @@ func routeRequest(info URLInfo) {
 		if choice.Index < 0 || choice.Index >= len(destinations) {
 			return
 		}
-		selected := destinations[choice.Index].Browser
-		selected.URL = target.URL
-		selected.Private = selected.Private || choice.Private || r.Private
-		selected.NewWindow = choice.NewWindow || r.NewWindow
-		if choice.Background {
-			bg := true
-			selected.OpenInBackground = &bg
-		}
+		selected := selectedPickerTarget(*target, destinations[choice.Index].Browser, r, choice)
 		target = &selected
 		if e := browser.ValidateTarget(*target); e != nil {
 			handleRuntimeError(e)
@@ -213,6 +200,34 @@ func routeRequest(info URLInfo) {
 			slog.Warn("Could not save history", "error", e)
 		}
 	}
+}
+
+func requestForPicker(target browser.BrowserConfig, r urlrequest.Request, background bool, destinations []picker.Destination) picker.Request {
+	if target.OpenInBackground != nil {
+		background = *target.OpenInBackground
+	}
+	return picker.Request{
+		URL: target.URL, Destinations: destinations,
+		Private: target.Private || r.Private, NewWindow: target.NewWindow || r.NewWindow,
+		Background: background,
+	}
+}
+
+// Choosing a destination must not discard the link's required launch modes.
+// Browser-specific arguments and profile identity remain those of the choice.
+func selectedPickerTarget(resolved, selected browser.BrowserConfig, r urlrequest.Request, choice picker.Selection) browser.BrowserConfig {
+	selected.URL = resolved.URL
+	selected.MatchedRule = resolved.MatchedRule
+	selected.Private = selected.Private || resolved.Private || r.Private || choice.Private
+	selected.NewWindow = selected.NewWindow || resolved.NewWindow || r.NewWindow || choice.NewWindow
+	if selected.OpenInBackground == nil {
+		selected.OpenInBackground = resolved.OpenInBackground
+	}
+	if choice.BackgroundSpecified || choice.Background {
+		background := choice.Background
+		selected.OpenInBackground = &background
+	}
+	return selected
 }
 
 func appType(name string) string {
@@ -302,7 +317,7 @@ func saveAndApply(rf rules.RulesFile) error {
 	}
 	if window.SaveRulesHandler != nil {
 		if err := window.SaveRulesHandler(rf); err != nil {
-			return err
+			return &savedRulesApplyError{err}
 		}
 	}
 	window.SendMessageToWebView("rules", rf)
@@ -310,11 +325,60 @@ func saveAndApply(rf rules.RulesFile) error {
 	return nil
 }
 
+// The rules reached disk even if updating a runtime option subsequently failed.
+// Focus restoration must remain available in that case.
+type savedRulesApplyError struct{ error }
+
+func (e *savedRulesApplyError) Unwrap() error { return e.error }
+
+func focusDefaultPath() (string, error) {
+	path, err := rules.GetPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(path), "focus-default.json"), nil
+}
+
+func applyAndSaveDefaultRequest(rf rules.RulesFile, r urlrequest.Request, save func(rules.RulesFile) error) error {
+	path, err := focusDefaultPath()
+	if err != nil {
+		return err
+	}
+	newSnapshot := false
+	if r.Focus == "active" {
+		_, statErr := os.Stat(path)
+		if statErr != nil && !os.IsNotExist(statErr) {
+			return statErr
+		}
+		newSnapshot = os.IsNotExist(statErr)
+	}
+	if err = applyDefaultRequest(&rf, r); err != nil {
+		return err
+	}
+	if err = save(rf); err != nil {
+		var appliedErr *savedRulesApplyError
+		if newSnapshot && !errors.As(err, &appliedErr) {
+			if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
+				return errors.Join(err, fmt.Errorf("could not remove unused Focus snapshot: %w", removeErr))
+			}
+		}
+		return err
+	}
+	if r.Focus == "clear" {
+		if err = os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("could not clear restored Focus snapshot: %w", err)
+		}
+	}
+	return nil
+}
+
 // Focus filters persist the previous default so leaving a Focus restores it,
 // including after the router has restarted. No account data is stored here.
 func applyDefaultRequest(rf *rules.RulesFile, r urlrequest.Request) error {
-	path, _ := rules.GetPath()
-	path = filepath.Join(filepath.Dir(path), "focus-default.json")
+	path, err := focusDefaultPath()
+	if err != nil {
+		return err
+	}
 	type defaults struct {
 		Browser, Profile, Directory string
 		Private                     bool
@@ -331,14 +395,26 @@ func applyDefaultRequest(rf *rules.RulesFile, r urlrequest.Request) error {
 		if err = json.Unmarshal(data, &previous); err != nil {
 			return err
 		}
-		rf.DefaultBrowser = previous.Browser
-		rf.DefaultProfile = previous.Profile
-		rf.DefaultProfileDirectory = previous.Directory
-		rf.DefaultPrivate = previous.Private
-		return nil
+		r.Browser, r.Profile, r.ProfileDirectory, r.Private = previous.Browser, previous.Profile, previous.Directory, previous.Private
+	}
+	proposed := *rf
+	proposed.DefaultBrowser = r.Browser
+	proposed.DefaultProfile = r.Profile
+	proposed.DefaultProfileDirectory = r.ProfileDirectory
+	proposed.DefaultPrivate = r.Private
+	if err = rules.Validate(proposed); err != nil {
+		return err
+	}
+	if proposed.DefaultBrowser != "" && proposed.DefaultBrowser != "prompt" {
+		if err = browser.ValidateTarget(browser.BrowserConfig{Name: proposed.DefaultBrowser, AppType: appType(proposed.DefaultBrowser), Profile: proposed.DefaultProfile, ProfileDirectory: proposed.DefaultProfileDirectory, Private: proposed.DefaultPrivate}); err != nil {
+			return err
+		}
 	}
 	if r.Focus == "active" {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		if _, err := os.Stat(path); err != nil {
+			if !os.IsNotExist(err) {
+				return err
+			}
 			if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 				return err
 			}
@@ -348,10 +424,7 @@ func applyDefaultRequest(rf *rules.RulesFile, r urlrequest.Request) error {
 			}
 		}
 	}
-	rf.DefaultBrowser = r.Browser
-	rf.DefaultProfile = r.Profile
-	rf.DefaultProfileDirectory = r.ProfileDirectory
-	rf.DefaultPrivate = r.Private
+	*rf = proposed
 	return nil
 }
 

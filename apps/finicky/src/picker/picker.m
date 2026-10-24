@@ -8,7 +8,8 @@ enum {
     PickerShare = 1 << 3,
     PickerPrivate = 1 << 4,
     PickerNewWindow = 1 << 5,
-    PickerBackground = 1 << 6
+    PickerBackground = 1 << 6,
+    PickerBackgroundSpecified = 1 << 7
 };
 
 @interface FinickyPickerPanel : NSPanel
@@ -18,7 +19,7 @@ enum {
 - (BOOL)canBecomeMainWindow { return YES; }
 @end
 
-@interface FinickyPickerController : NSObject <NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate>
+@interface FinickyPickerController : NSObject <NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate, NSSharingServicePickerDelegate, NSSharingServiceDelegate>
 @property(nonatomic) unsigned long long requestID;
 @property(nonatomic, strong) NSDictionary *request;
 @property(nonatomic, strong) NSArray<NSDictionary *> *destinations;
@@ -30,6 +31,8 @@ enum {
 @property(nonatomic, strong) NSButton *backgroundButton;
 @property(nonatomic, strong) NSButton *openButton;
 @property(nonatomic, strong) id keyboardMonitor;
+@property(nonatomic, strong) NSSharingServicePicker *sharingPicker;
+@property(nonatomic, strong) NSSharingService *sharingService;
 @property(nonatomic) BOOL finished;
 @property(nonatomic) BOOL contextMenuOpen;
 - (void)present;
@@ -155,6 +158,17 @@ static NSImage *DestinationIcon(NSDictionary *destination) {
     self.separateWindowButton.toolTip = @"Request a separate window in a supported browser.";
     self.backgroundButton = [NSButton checkboxWithTitle:@"Background" target:nil action:nil];
     self.backgroundButton.toolTip = @"Ask the browser to open without becoming active. Some browsers may still activate.";
+    if ([self.request[@"private"] boolValue]) {
+        self.privateButton.state = NSControlStateValueOn;
+        self.privateButton.enabled = NO;
+        self.privateButton.toolTip = @"This link's rule or request requires private browsing.";
+    }
+    if ([self.request[@"newWindow"] boolValue]) {
+        self.separateWindowButton.state = NSControlStateValueOn;
+        self.separateWindowButton.enabled = NO;
+        self.separateWindowButton.toolTip = @"This link's rule or request requires a new window.";
+    }
+    self.backgroundButton.state = [self.request[@"background"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
     NSStackView *options = [NSStackView stackViewWithViews:@[self.privateButton, self.separateWindowButton, self.backgroundButton]];
     options.spacing = 18;
     [stack addArrangedSubview:options];
@@ -166,6 +180,9 @@ static NSImage *DestinationIcon(NSDictionary *destination) {
     NSButton *copy = ActionButton(@"Copy Link", self, @selector(copyLink:));
     copy.toolTip = @"Copy this link (Command-C).";
     NSButton *share = ActionButton(@"Share…", self, @selector(shareLink:));
+    // AppKit requires showing its sharing picker during mouseDown, while the
+    // clicked button remains in a visible window.
+    [share sendActionOn:NSEventMaskLeftMouseDown];
     NSButton *cancel = ActionButton(@"Cancel", self, @selector(cancel:));
     self.openButton = ActionButton(@"Open", self, @selector(choose:));
     self.openButton.keyEquivalent = @"\r";
@@ -196,7 +213,7 @@ static NSImage *DestinationIcon(NSDictionary *destination) {
     __weak FinickyPickerController *weakSelf = self;
     self.keyboardMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
         FinickyPickerController *controller = weakSelf;
-        if (!controller || controller.finished || controller.contextMenuOpen || !controller.panel.isKeyWindow || event.window != controller.panel) return event;
+        if (!controller || controller.finished || controller.contextMenuOpen || controller.sharingPicker || controller.sharingService || !controller.panel.isKeyWindow || event.window != controller.panel) return event;
         return [controller handleKey:event] ? nil : event;
     }];
     [self.panel center];
@@ -332,13 +349,53 @@ static NSImage *DestinationIcon(NSDictionary *destination) {
 
 - (void)cancel:(id)sender { [self finish:-1 flags:PickerCancelled]; }
 - (void)copyLink:(id)sender { [self finish:-1 flags:PickerCopy]; }
-- (void)shareLink:(id)sender { [self finish:-1 flags:PickerShare]; }
+- (void)shareLink:(NSButton *)sender {
+    if (self.finished || self.sharingPicker || self.sharingService) return;
+    NSURL *link = [NSURL URLWithString:StringValue(self.request[@"url"])];
+    if (!link || !sender.window.isVisible) return;
+    self.sharingPicker = [[NSSharingServicePicker alloc] initWithItems:@[link]];
+    self.sharingPicker.delegate = self;
+    [self.sharingPicker showRelativeToRect:sender.bounds ofView:sender preferredEdge:NSRectEdgeMaxY];
+}
+
+- (id<NSSharingServiceDelegate>)sharingServicePicker:(NSSharingServicePicker *)picker delegateForSharingService:(NSSharingService *)service {
+    self.sharingService = service;
+    return self;
+}
+
+- (void)sharingServicePicker:(NSSharingServicePicker *)picker didChooseSharingService:(NSSharingService *)service {
+    if (!service) {
+        self.sharingPicker.delegate = nil;
+        self.sharingPicker = nil;
+        self.sharingService = nil;
+    }
+    // A chosen service receives its items after this callback returns. Keep
+    // the anchor alive until that service finishes; cancelling the popover
+    // instead returns to the same destination picker.
+}
+
+- (void)sharingService:(NSSharingService *)service didShareItems:(NSArray *)items {
+    // AppKit has handled the action. Complete as cancelled so Go does not open
+    // a browser or present a second sharing picker.
+    [self finish:-1 flags:PickerCancelled];
+}
+
+- (void)sharingService:(NSSharingService *)service didFailToShareItems:(NSArray *)items error:(NSError *)error {
+    self.sharingPicker.delegate = nil;
+    self.sharingPicker = nil;
+    self.sharingService.delegate = nil;
+    self.sharingService = nil;
+    if ([error.domain isEqualToString:NSCocoaErrorDomain] && error.code == NSUserCancelledError) return;
+    NSAlert *alert = [NSAlert alertWithError:error];
+    [alert beginSheetModalForWindow:self.panel completionHandler:nil];
+}
 - (void)windowWillClose:(NSNotification *)notification { [self finish:-1 flags:PickerCancelled]; }
 
 - (void)finish:(NSInteger)index flags:(unsigned int)flags {
     if (self.finished) return;
     self.finished = YES;
     if (index >= 0) {
+        flags |= PickerBackgroundSpecified;
         NSEventModifierFlags modifiers = NSEvent.modifierFlags;
         if (self.rememberButton.state == NSControlStateValueOn || (modifiers & NSEventModifierFlagCommand)) flags |= PickerRemember;
         if (self.privateButton.state == NSControlStateValueOn) flags |= PickerPrivate;
@@ -349,6 +406,11 @@ static NSImage *DestinationIcon(NSDictionary *destination) {
         [NSEvent removeMonitor:self.keyboardMonitor];
         self.keyboardMonitor = nil;
     }
+    self.sharingPicker.delegate = nil;
+    [self.sharingPicker close];
+    self.sharingPicker = nil;
+    self.sharingService.delegate = nil;
+    self.sharingService = nil;
     self.panel.delegate = nil;
     [self.panel orderOut:nil];
     [self.panel close];

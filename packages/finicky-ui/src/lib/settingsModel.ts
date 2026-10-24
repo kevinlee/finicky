@@ -1,4 +1,10 @@
-import type { ConfigOptions, RulesFile, SavedProfile } from "../types";
+import type {
+  ConfigOptions,
+  Features,
+  Rule,
+  RulesFile,
+  SavedProfile,
+} from "../types";
 
 type Destination = {
   browser: string;
@@ -38,6 +44,42 @@ export function defaultDestinationValue(
     : model.defaultProfile || model.defaultProfileDirectory
       ? "custom"
       : `browser:${model.defaultBrowser}`;
+}
+
+/** Keep an explicitly selected custom editor open even if it matches a favorite. */
+export function alternativeDestinationValue(
+  features: Partial<Features>,
+  profiles: SavedProfile[],
+  editingCustom = false,
+): string {
+  if (!features.alternativeBrowser) return "none";
+  if (editingCustom) return "custom";
+  const favorite = profiles.find((profile) =>
+    matchesFavorite(profile, {
+      browser: features.alternativeBrowser!,
+      profile: features.alternativeProfile,
+      profileDirectory: features.alternativeProfileDirectory,
+      private: features.alternativePrivate,
+    }),
+  );
+  return favorite ? `profile:${favorite.id}` : "custom";
+}
+
+/** Update only rules using this favorite; their own launch options stay intact. */
+export function updateRulesForProfile(
+  rules: Rule[],
+  previous: SavedProfile,
+  next: SavedProfile,
+): Rule[] {
+  return rules.map((rule) => {
+    if (!matchesFavorite(previous, rule)) return rule;
+    const updated = { ...rule, browser: next.browser };
+    delete updated.profile;
+    delete updated.profileDirectory;
+    if (next.profile) updated.profile = next.profile;
+    if (next.profileDirectory) updated.profileDirectory = next.profileDirectory;
+    return updated;
+  });
 }
 
 /** Saved options override the active JavaScript value, including explicit false. */

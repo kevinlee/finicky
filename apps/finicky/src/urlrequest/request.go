@@ -98,7 +98,7 @@ func Extract(text string) []string {
 	seen := map[string]bool{}
 	result := []string{}
 	for _, item := range strings.Fields(text) {
-		item = strings.Trim(item, "<>\"'()[]{}.,;")
+		item = trimURLProse(item)
 		u, err := url.Parse(item)
 		if err == nil && validURL(u) && !seen[item] {
 			seen[item] = true
@@ -106,4 +106,52 @@ func Extract(text string) []string {
 		}
 	}
 	return result
+}
+
+// trimURLProse removes surrounding prose punctuation without truncating
+// balanced delimiters that belong to a URL (including an IPv6 host's brackets).
+// Percent-encoded delimiters are left encoded and do not affect balancing.
+// This is only an extraction heuristic; Parse preserves an exact supplied URL.
+func trimURLProse(item string) string {
+	item = strings.TrimLeft(item, "<>\"'()[]{}.,;")
+	var balance [3]int
+	for i := 0; i < len(item); i++ {
+		switch item[i] {
+		case '(':
+			balance[0]++
+		case ')':
+			balance[0]--
+		case '[':
+			balance[1]++
+		case ']':
+			balance[1]--
+		case '{':
+			balance[2]++
+		case '}':
+			balance[2]--
+		}
+	}
+	for len(item) > 0 {
+		index := -1
+		switch item[len(item)-1] {
+		case ')':
+			index = 0
+		case ']':
+			index = 1
+		case '}':
+			index = 2
+		case '>', '"', '\'', '.', ',', ';':
+			// These delimit a link in ordinary prose.
+		default:
+			return item
+		}
+		if index >= 0 {
+			if balance[index] >= 0 {
+				return item
+			}
+			balance[index]++
+		}
+		item = item[:len(item)-1]
+	}
+	return item
 }
