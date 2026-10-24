@@ -39,6 +39,22 @@ scripts/build-integrations.sh
 
 `FINICKY_INTEGRATIONS_OUTPUT` changes the output directory. `CONFIGURATION` defaults to `Release`.
 
+Set `FINICKY_REQUIRE_RUNTIME_SIGNING=1` when preparing a build for native integration acceptance. The build then requires an existing Apple-issued signing identity and team, and checks that the companion and embedded extensions share that team. It never creates certificates, changes Keychain trust, or invents signing entitlements.
+
+You can inspect an existing bundle without launching or changing it:
+
+```sh
+bash scripts/check-integration-signing.sh --require-team '/Applications/Finicky Actions.app'
+```
+
+### Native Shortcuts communication failures
+
+On the October 24, 2026 deployment, the catalog correctly listed all five actions, but running the Settings action failed while macOS established its connection to the companion, before action execution. Scoped system logs reported `LNConnectionErrorDomain` 1200 (“AppleEvents communication failed”) and an unavailable signing Team ID. The installed ad hoc signature had no Team ID, and this Mac had no valid code-signing identity. The failure persisted after all four development copies were unregistered, the installed app and extensions were registered again, and the installed companion was restarted. The retry resolved the correct installed process and still reported the missing Team ID. Passing `codesign --verify` and discovering action metadata therefore did **not** establish that native actions could execute.
+
+Before attributing a failure to signing, keep only the installed app registered with Launch Services and restart that companion after replacing its binary. Development builds in `dist` and DerivedData can otherwise compete under the same bundle identifier. Do not delete Shortcuts databases or add Apple's private entitlements as a workaround. Once a real Apple Development or Developer ID identity is available, rebuild the companion and all its extensions together and repeat the actual action test. This is the remaining diagnosis to validate; a signed build has not yet been tested on this Mac. Apple's [code-identity guidance](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements) explains why an ad hoc seal is not a persistent developer identity.
+
+As a local fallback, a normal shortcut can use the built-in **URL** and **Open URLs** actions with the `finicky-plus://` commands below. That invokes the router's tested URL handler directly and does not depend on the companion's App Intents connection. It does not make the companion's native actions or Focus extension verified.
+
 ## Enable on your Mac
 
 1. Install and open Finicky Plus once so macOS registers its URL scheme.
