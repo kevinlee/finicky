@@ -12,18 +12,18 @@
 <PageContainer>
   <div class="logo-section">
     <div class="app-info">
-      <span class="app-name">Finicky</span>
+      <span class="app-name">Finicky Plus</span>
       <span class="version">Version {version}</span>
     </div>
   </div>
 
   <div class="section">
     <p>
-      Finicky is a macOS application that lets you set up rules to decide which
-      browser to open for every link.
+      Finicky Plus extends Finicky with a browser picker, profile routing, and
+      link-handling controls for macOS.
     </p>
     <a
-      href="https://github.com/johnste/finicky"
+      href="https://github.com/kevinlee/finicky"
       target="_blank"
       rel="noopener noreferrer"
       class="repo-link"
@@ -35,7 +35,7 @@
   <div class="section">
     <h2>Credits</h2>
     <p>
-      Created by <a
+      Original Finicky created by <a
         href="https://github.com/johnste"
         target="_blank"
         rel="noopener noreferrer">John Sterling</a

@@ -200,9 +200,9 @@ func TestResolveURL_MergedJSAndJSON_WithCachedRules(t *testing.T) {
 		url     string
 		browser string
 	}{
-		{"https://github.com/foo", "Firefox"},          // JS handler wins
+		{"https://github.com/foo", "Firefox"},                // JS handler wins
 		{"https://linear.app/team/issue/1", "Google Chrome"}, // JSON rule applies
-		{"https://example.com", "Safari"},              // JS default
+		{"https://example.com", "Safari"},                    // JS default
 	}
 	for _, tt := range tests {
 		t.Run(tt.url, func(t *testing.T) {
@@ -275,5 +275,110 @@ func TestResolveURL_OpenInBackground(t *testing.T) {
 	}
 	if result.OpenInBackground == nil || !*result.OpenInBackground {
 		t.Error("expected OpenInBackground=true")
+	}
+}
+
+func TestResolveURL_AppRulesAndExplicitDirectories(t *testing.T) {
+	disabled := false
+	rf := rules.RulesFile{
+		DefaultBrowser: "Google Chrome", DefaultProfileDirectory: "Default",
+		Rules: []rules.Rule{
+			{SourceApps: []string{"com.slack"}, Browser: "Firefox", Enabled: &disabled},
+			{SourceApps: []string{"com.slack"}, Match: []string{"work.example/*"}, Browser: "Google Chrome", Profile: "Work", ProfileDirectory: "Profile 2"},
+			{SourceApps: []string{"com.cursor"}, Browser: "Google Chrome", ProfileDirectory: "Profile 1"},
+		},
+	}
+	vm := rulesVM(t, rf)
+	for _, test := range []struct{ url, source, directory string }{
+		{"https://work.example/doc", "com.slack", "Profile 2"},
+		{"https://elsewhere.example", "com.slack", "Default"},
+		{"https://anywhere.example", "com.cursor", "Profile 1"},
+		{"https://work.example/doc", "", "Default"},
+	} {
+		var opener *OpenerInfo
+		if test.source != "" {
+			opener = &OpenerInfo{BundleID: test.source, Name: test.source}
+		}
+		result, err := ResolveURL(vm, test.url, opener, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.ProfileDirectory != test.directory {
+			t.Errorf("%s from %s: got %q, want %q", test.url, test.source, result.ProfileDirectory, test.directory)
+		}
+	}
+}
+
+func TestResolveURL_AppRulesPreserveJSPrecedence(t *testing.T) {
+	vm := jsVM(t, `({defaultBrowser: "Safari", handlers: [{match: "work.example/*", browser: "Firefox"}]})`)
+	SetCachedRules(rules.RulesFile{Rules: []rules.Rule{
+		{SourceApps: []string{"com.slack"}, Browser: "Google Chrome", ProfileDirectory: "Profile 2"},
+	}})
+	t.Cleanup(func() { SetCachedRules(rules.RulesFile{}) })
+	opener := &OpenerInfo{Name: "Slack", BundleID: "com.slack"}
+	for _, test := range []struct{ url, browser, directory string }{
+		{"https://work.example/doc", "Firefox", ""},
+		{"https://other.example/doc", "Google Chrome", "Profile 2"},
+	} {
+		result, err := ResolveURL(vm, test.url, opener, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Name != test.browser || result.ProfileDirectory != test.directory {
+			t.Errorf("%s: got %+v", test.url, result)
+		}
+	}
+}
+
+func TestSavedDefaultOverridesOnlyJSFallback(t *testing.T) {
+	vm := jsVM(t, `({defaultBrowser: "Safari", handlers: [{match: "work.example/*", browser: "Firefox"}]})`)
+	SetCachedRules(rules.RulesFile{DefaultBrowser: "Google Chrome", DefaultProfileDirectory: "Profile 2"})
+	t.Cleanup(func() { SetCachedRules(rules.RulesFile{}) })
+	matched, err := ResolveURL(vm, "https://work.example/page", nil, false)
+	if err != nil || matched.Name != "Firefox" || matched.MatchedRule == nil {
+		t.Fatalf("matched: %#v %v", matched, err)
+	}
+	fallback, err := ResolveURL(vm, "https://personal.example/page", nil, false)
+	if err != nil || fallback.Name != "Google Chrome" || fallback.ProfileDirectory != "Profile 2" {
+		t.Fatalf("fallback: %#v %v", fallback, err)
+	}
+}
+func TestCleanupWithoutJSConfig(t *testing.T) {
+	off := false
+	SetCachedRules(rules.RulesFile{Features: &rules.Features{StripTracking: true, ExpandShortURLs: &off}})
+	t.Cleanup(func() { SetCachedRules(rules.RulesFile{}) })
+	result, err := ResolveURL(nil, "https://example.com/path?utm_source=test&file=keep", nil, false)
+	if err != nil || result.URL != "https://example.com/path?file=keep" {
+		t.Fatalf("%#v %v", result, err)
+	}
+}
+
+func TestVisualTransformsAndStableRuleIndex(t *testing.T) {
+	for _, js := range []bool{false, true} {
+		off := false
+		rf := rules.RulesFile{DefaultBrowser: "Safari", Features: &rules.Features{TransformScript: `return url.replace("old.example", "new.example");`}, Rules: []rules.Rule{
+			{Match: []string{"*"}, Browser: "Safari", Enabled: &off},
+			{Match: []string{"https://new.example/*"}, Browser: "Firefox", TransformScript: `return url.replace("/start", "/finish");`},
+		}}
+		SetCachedRules(rf)
+		vm := rulesVM(t, rf)
+		if js {
+			vm = jsVM(t, `({defaultBrowser: "Safari"})`)
+		}
+		got, err := ResolveURL(vm, "https://old.example/start", nil, false)
+		if err != nil || got.URL != "https://new.example/finish" || got.Name != "Firefox" || got.MatchedRule == nil || *got.MatchedRule != 1 {
+			t.Fatalf("js=%v: %+v %v", js, got, err)
+		}
+	}
+	SetCachedRules(rules.RulesFile{})
+}
+
+func TestTransformTimeoutDoesNotPoisonLaterRequests(t *testing.T) {
+	vm := jsVM(t, `({defaultBrowser: "Safari", handlers: [{match: function(url) { if(url.hostname === "loop.example") { while(true) {} } return false; }, browser: "Firefox"}]})`)
+	if _, err := ResolveURL(vm, "https://loop.example", nil, false); err == nil {
+		t.Fatal("loop was not interrupted")
+	}
+	if result, err := ResolveURL(vm, "https://example.com", nil, false); err != nil || result.Name != "Safari" {
+		t.Fatalf("later request failed: %+v %v", result, err)
 	}
 }

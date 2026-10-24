@@ -112,5 +112,83 @@
     "id": "org.ecosia.browser",
     "type": "Chromium",
     "app_name": "Ecosia Browser"
+  },
+  {
+    "config_dir_relative": "BraveSoftware/Brave-Browser-Beta",
+    "id": "com.brave.Browser.beta",
+    "type": "Chromium",
+    "app_name": "Brave Browser Beta"
+  },
+  {
+    "config_dir_relative": "BraveSoftware/Brave-Origin",
+    "id": "com.brave.Browser.origin",
+    "type": "Chromium",
+    "app_name": "Brave Origin"
+  },
+  {
+    "config_dir_relative": "BraveSoftware/Brave-Origin-Nightly",
+    "id": "com.brave.Browser.origin.nightly",
+    "type": "Chromium",
+    "app_name": "Brave Origin Nightly"
+  },
+  {
+    "config_dir_relative": "Google/Chrome Dev",
+    "id": "com.google.Chrome.dev",
+    "type": "Chromium",
+    "app_name": "Google Chrome Dev"
+  },
+  {
+    "config_dir_relative": "Microsoft Edge Beta",
+    "id": "com.microsoft.edgemac.Beta",
+    "type": "Chromium",
+    "app_name": "Microsoft Edge Beta"
+  },
+  {
+    "config_dir_relative": "Microsoft Edge Dev",
+    "id": "com.microsoft.edgemac.Dev",
+    "type": "Chromium",
+    "app_name": "Microsoft Edge Dev"
+  },
+  {
+    "config_dir_relative": "Microsoft Edge Canary",
+    "id": "com.microsoft.edgemac.Canary",
+    "type": "Chromium",
+    "app_name": "Microsoft Edge Canary"
+  },
+  {
+    "config_dir_relative": "Vivaldi Snapshot",
+    "id": "com.vivaldi.Vivaldi.snapshot",
+    "type": "Chromium",
+    "app_name": "Vivaldi Snapshot"
+  },
+  {
+    "config_dir_relative": "Thorium",
+    "id": "org.chromium.Thorium",
+    "type": "Chromium",
+    "app_name": "Thorium"
+  },
+  {
+    "config_dir_relative": "com.operasoftware.OperaNext",
+    "id": "com.operasoftware.OperaNext",
+    "type": "Chromium",
+    "app_name": "Opera Beta"
+  },
+  {
+    "config_dir_relative": "com.operasoftware.OperaDeveloper",
+    "id": "com.operasoftware.OperaDeveloper",
+    "type": "Chromium",
+    "app_name": "Opera Developer"
+  },
+  {
+    "config_dir_relative": "Firefox",
+    "id": "org.mozilla.nightly",
+    "type": "Firefox",
+    "app_name": "Firefox Nightly"
+  },
+  {
+    "config_dir_relative": "LibreWolf",
+    "id": "net.librewolf.librewolf",
+    "type": "Firefox",
+    "app_name": "LibreWolf"
   }
 ]

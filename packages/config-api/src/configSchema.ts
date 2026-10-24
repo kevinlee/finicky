@@ -76,6 +76,11 @@ const UrlMatcherPatternSchema = z.union([
 
 const appTypes = ["appName", "bundleId", "path", "none"] as const;
 
+const ProfileDirectorySchema = z.string().refine(
+  (value) => value === "" || (value.trim() !== "" && value !== "." && value !== ".." && !/[\\/\u0000\r\n]/.test(value)),
+  "Profile directory must be a single folder name"
+);
+
 export type AppType = (typeof appTypes)[number];
 
 const BrowserConfigSchema = z
@@ -84,7 +89,11 @@ const BrowserConfigSchema = z
     appType: z.enum(appTypes).optional(),
     openInBackground: z.boolean().optional(),
     profile: z.string().optional(),
+    profileDirectory: ProfileDirectorySchema.optional(),
     args: z.array(z.string()).optional(),
+    action: z.enum(["open", "prompt"]).optional(),
+    private: z.boolean().optional(),
+    newWindow: z.boolean().optional(),
   })
   .identifier("BrowserConfig")
   .describe("A browser or app to open for urls");
@@ -94,7 +103,12 @@ export const BrowserConfigStrictSchema = z.object({
   appType: z.enum(appTypes),
   openInBackground: z.boolean().optional(),
   profile: z.string(),
+  profileDirectory: ProfileDirectorySchema.optional(),
   args: z.array(z.string()),
+  action: z.enum(["open", "prompt"]).optional(),
+  private: z.boolean().optional(),
+  newWindow: z.boolean().optional(),
+  matchedRule: z.number().optional(),
   url: z.string(),
 });
 
@@ -122,6 +136,11 @@ const HandlerRuleSchema = z
   .object({
     match: UrlMatcherPatternSchema,
     browser: BrowserSpecificationSchema,
+    sourceApps: z.array(z.string()).optional(),
+    enabled: z.boolean().optional(),
+    url: UrlTransformSpecificationSchema.optional(),
+    transformScript: z.string().optional(),
+    ruleIndex: z.number().int().nonnegative().optional(),
   })
   .describe(
     "A handler contains a matcher and a browser. If the matcher matches when opening a url, the browser in the handler will be opened."
@@ -132,6 +151,7 @@ const HandlerRuleSchema = z
 const ConfigOptionsSchema = z
   .object({
     urlShorteners: z.array(z.string()).optional(),
+    transformScript: z.string().optional(),
     logRequests: z.boolean().optional().describe("Log to file on disk"),
     checkForUpdates: z.boolean().optional().describe("Check for updates"),
     keepRunning: z.boolean().optional().describe("Keep the app running"),

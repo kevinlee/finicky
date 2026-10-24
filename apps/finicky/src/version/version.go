@@ -50,7 +50,7 @@ func getCacheDir() string {
 		slog.Error("Error getting user cache directory", "error", err)
 		return ""
 	}
-	cacheDir = filepath.Join(cacheDir, "Finicky")
+	cacheDir = filepath.Join(cacheDir, "Finicky Plus")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		slog.Error("Error creating cache directory", "error", err)
 		return ""
