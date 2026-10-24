@@ -25,7 +25,61 @@ final class ShareActivationTests: XCTestCase {
         XCTAssertGreaterThan(icon.size.height, 0)
     }
 
-    func testSharedLinksCanOfferUnsupportedAlternateRepresentations() throws {
+    func testSelectedAttributedTextDoesNotRequireAttachments() throws {
+        let predicate = try activationPredicate()
+        // This is the shape macOS creates for NSExtensionItem's attributed
+        // content: RTF data under contentText, with no attachments key. Testing
+        // an empty attachments array alone would miss the host-menu regression.
+        let text = NSAttributedString(string: "https://example.com/one https://example.com/two")
+        let data = try text.data(
+            from: NSRange(location: 0, length: text.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+        XCTAssertTrue(predicate.evaluate(with: ["extensionItems": [["contentText": data]]]))
+        XCTAssertTrue(predicate.evaluate(with: ["extensionItems": [["contentText": data, "attachments": []]]]))
+    }
+
+    func testActivationAcceptsReadableTextAndWebURLRepresentations() throws {
+        let predicate = try activationPredicate()
+        for type in ["public.url", "public.plain-text", "public.utf8-plain-text", "public.utf16-plain-text", "public.rtf"] {
+            XCTAssertTrue(predicate.evaluate(with: matchingInput([[type]])), type)
+        }
+        // An unsupported alternate representation must not hide a readable
+        // URL/text representation of the same item.
+        XCTAssertTrue(predicate.evaluate(with: matchingInput([["public.url", "public.html", "public.png"]])))
+        XCTAssertTrue(predicate.evaluate(with: matchingInput([["public.url", "com.apple.active-webpage"]])))
+        XCTAssertTrue(predicate.evaluate(with: matchingInput([["public.utf8-plain-text", "public.png"]])))
+        XCTAssertTrue(predicate.evaluate(with: matchingInput([["public.file-url", "public.utf8-plain-text"]])))
+    }
+
+    func testActivationRejectsUnsupportedAndEmptyInputs() throws {
+        let predicate = try activationPredicate()
+        for type in ["public.png", "public.movie", "public.file-url", "public.html", "com.apple.active-webpage"] {
+            XCTAssertFalse(predicate.evaluate(with: matchingInput([[type]])), type)
+        }
+        XCTAssertFalse(predicate.evaluate(with: matchingInput([["public.file-url", "public.url"]])))
+        XCTAssertFalse(predicate.evaluate(with: ["extensionItems": []]))
+        XCTAssertFalse(predicate.evaluate(with: ["extensionItems": [[:]]]))
+        XCTAssertFalse(predicate.evaluate(with: matchingInput([])))
+        XCTAssertFalse(predicate.evaluate(with: ["extensionItems": [["title": Data("title".utf8)]]]))
+    }
+
+    func testActivationBoundsItemsAndAttachments() throws {
+        let predicate = try activationPredicate()
+        let provider = ["registeredTypeIdentifiers": ["public.url"]]
+        let item = ["attachments": [provider]]
+        XCTAssertTrue(predicate.evaluate(with: ["extensionItems": Array(repeating: item, count: 256)]))
+        XCTAssertFalse(predicate.evaluate(with: ["extensionItems": Array(repeating: item, count: 257)]))
+        XCTAssertTrue(predicate.evaluate(with: ["extensionItems": [["attachments": Array(repeating: provider, count: 256)]]]))
+        XCTAssertFalse(predicate.evaluate(with: ["extensionItems": [["attachments": Array(repeating: provider, count: 257)]]]))
+        XCTAssertFalse(predicate.evaluate(with: ["extensionItems": [item, ["attachments": [["registeredTypeIdentifiers": ["public.png"]]]]]]))
+    }
+
+    private func matchingInput(_ providerTypes: [[String]]) -> [String: Any] {
+        ["extensionItems": [["attachments": providerTypes.map { ["registeredTypeIdentifiers": $0] }]]]
+    }
+
+    private func activationPredicate() throws -> NSPredicate {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -36,19 +90,7 @@ final class ShareActivationTests: XCTestCase {
         )
         let extensionInfo = try XCTUnwrap(plist["NSExtension"] as? [String: Any])
         let attributes = try XCTUnwrap(extensionInfo["NSExtensionAttributes"] as? [String: Any])
-        let rule = try XCTUnwrap(attributes["NSExtensionActivationRule"] as? [String: Any])
-
-        // Apple's version 1 default rejects a provider offering both supported
-        // text/URLs and unsupported image assets. Version 2 accepts a supported
-        // representation without claiming that this extension handles images.
-        // https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/AppExtensionKeys.html
-        XCTAssertEqual(rule["NSExtensionActivationDictionaryVersion"] as? Int, 2)
-        XCTAssertEqual(rule["NSExtensionActivationSupportsText"] as? Bool, true)
-        let maxURLs = try XCTUnwrap(rule["NSExtensionActivationSupportsWebURLWithMaxCount"] as? Int)
-        XCTAssertGreaterThan(maxURLs, 0)
-        XCTAssertLessThanOrEqual(maxURLs, 256)
-        for unsupportedType in ["Image", "Movie", "File"] {
-            XCTAssertNil(rule["NSExtensionActivationSupports\(unsupportedType)WithMaxCount"])
-        }
+        let rule = try XCTUnwrap(attributes["NSExtensionActivationRule"] as? String)
+        return NSPredicate(format: rule)
     }
 }

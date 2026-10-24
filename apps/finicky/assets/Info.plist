@@ -88,6 +88,8 @@
 			<string>openSelectedLinks</string>
 			<key>NSPortName</key>
 			<string>Finicky Plus</string>
+			<key>NSRequiredContext</key>
+			<dict/>
 			<key>NSSendTypes</key>
 			<array>
 				<string>NSStringPboardType</string>
@@ -104,6 +106,8 @@
 			<string>chooseForSelectedLinks</string>
 			<key>NSPortName</key>
 			<string>Finicky Plus</string>
+			<key>NSRequiredContext</key>
+			<dict/>
 			<key>NSSendTypes</key>
 			<array>
 				<string>NSStringPboardType</string>

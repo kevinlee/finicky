@@ -32,20 +32,30 @@
 		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
 		<key>NSExtensionAttributes</key>
 		<dict>
+			<!-- macOS matches selected attributed text as contentText with no
+			     attachments key. Accept that text or a readable text/web URL
+			     representation, and cap both item and per-item attachment counts. -->
 			<key>NSExtensionActivationRule</key>
-			<dict>
-				<!-- A host may offer a URL/text alongside an image representation.
-				     Version 2 matches a supported representation; the default version 1
-				     requires support for every representation and hides this extension. -->
-				<key>NSExtensionActivationDictionaryVersion</key>
-				<integer>2</integer>
-				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
-				<integer>256</integer>
-				<key>NSExtensionActivationSupportsWebPageWithMaxCount</key>
-				<integer>256</integer>
-				<key>NSExtensionActivationSupportsText</key>
-				<true/>
-			</dict>
+			<string>
+                extensionItems.@count &gt; 0 AND extensionItems.@count &lt;= 256 AND
+                SUBQUERY(extensionItems, $item,
+                    ($item.attachments == NIL OR $item.attachments.@count &lt;= 256) AND
+                    ($item.contentText != NIL OR
+                        SUBQUERY($item.attachments, $attachment,
+                            ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text" OR
+                            ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.rtf" OR
+                            (
+                                ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url" AND
+                                NOT ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.file-url" AND
+                                SUBQUERY($attachment.registeredTypeIdentifiers, $type,
+                                    $type UTI-CONFORMS-TO "public.url" AND
+                                    NOT $type UTI-CONFORMS-TO "com.apple.active-webpage"
+                                ).@count &gt; 0
+                            )
+                        ).@count &gt; 0
+                    )
+                ).@count == extensionItems.@count
+            </string>
 		</dict>
 	</dict>
 </dict>

@@ -1,5 +1,4 @@
 import AppKit
-import UniformTypeIdentifiers
 
 final class ShareViewController: NSViewController {
     private let status = NSTextField(wrappingLabelWithString: "Reading shared links…")
@@ -55,39 +54,10 @@ final class ShareViewController: NSViewController {
     }
 
     private func collectURLs() async -> [URL] {
-        var found: [URL] = []
-        for case let item as NSExtensionItem in extensionContext?.inputItems ?? [] {
-            if let text = item.attributedContentText?.string {
-                found.append(contentsOf: FinickyBridge.webURLs(in: text))
-            }
-            for provider in item.attachments ?? [] {
-                guard !finished else { return [] }
-                let type: String
-                if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                    type = UTType.url.identifier
-                } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                    type = UTType.plainText.identifier
-                } else { continue }
-                let value = await load(provider, type: type)
-                if let url = value as? URL, FinickyBridge.isWebURL(url) {
-                    found.append(url)
-                } else if let string = value as? String {
-                    found.append(contentsOf: FinickyBridge.webURLs(in: string))
-                } else if let data = value as? Data, let string = String(data: data, encoding: .utf8) {
-                    found.append(contentsOf: FinickyBridge.webURLs(in: string))
-                }
-            }
-        }
-        var seen = Set<String>()
-        return found.filter { seen.insert($0.absoluteString).inserted }
-    }
-
-    private func load(_ provider: NSItemProvider, type: String) async -> NSSecureCoding? {
-        await withCheckedContinuation { continuation in
-            provider.loadItem(forTypeIdentifier: type, options: nil) { item, _ in
-                continuation.resume(returning: item)
-            }
-        }
+        await ShareLinkLoader.urls(
+            from: (extensionContext?.inputItems ?? []).compactMap { $0 as? NSExtensionItem },
+            isCancelled: { self.finished }
+        )
     }
 
     @objc private func cancelRequest() {
