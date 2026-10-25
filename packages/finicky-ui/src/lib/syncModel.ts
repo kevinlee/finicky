@@ -64,7 +64,19 @@ export function bindingForFavorite(profile: SavedProfile): SyncBinding {
 }
 
 export function equalBindings(a: Record<string, SyncBinding>, b: Record<string, SyncBinding>): boolean {
-  const canonical = (bindings: Record<string, SyncBinding>) => JSON.stringify(Object.keys(bindings).sort().map((id) => [id, bindings[id].browser.trim(), bindings[id].profile?.trim() || "", bindings[id].profileDirectory?.trim() || ""]));
+  const aliases: Record<string, string> = {
+    "Google Chrome": "com.google.Chrome", "Google Chrome Canary": "com.google.Chrome.canary",
+    Chromium: "org.chromium.Chromium", Safari: "com.apple.Safari",
+    "Safari Technology Preview": "com.apple.SafariTechnologyPreview", Firefox: "org.mozilla.firefox",
+    "Microsoft Edge": "com.microsoft.edgemac", "Brave Browser": "com.brave.Browser",
+    Arc: "company.thebrowser.Browser", Vivaldi: "com.vivaldi.Vivaldi", Opera: "com.operasoftware.Opera",
+  };
+  const canonical = (bindings: Record<string, SyncBinding>) => JSON.stringify(Object.keys(bindings).sort().map((id) => {
+    const binding = bindings[id];
+    const browser = binding.browser.trim();
+    const directory = binding.profileDirectory?.trim() || "";
+    return [id, aliases[browser] || browser, directory ? "" : binding.profile?.trim() || "", directory];
+  }));
   return canonical(a) === canonical(b);
 }
 

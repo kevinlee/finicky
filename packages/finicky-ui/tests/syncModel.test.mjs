@@ -36,6 +36,13 @@ test("directory mapping requires a stable Chrome target and rejects paths", () =
   assert.equal(syncBindingError({ browser: "Safari" }), "");
 });
 
+test("native bundle identifiers match local favorites without losing directory identity", () => {
+  const native = { work: { browser: "com.google.Chrome", profile: "Old display name", profileDirectory: "Profile 2" } };
+  assert.equal(equalBindings(native, { work: { browser: "Google Chrome", profileDirectory: "Profile 2" } }), true);
+  assert.equal(equalBindings(native, { work: { browser: "Google Chrome", profileDirectory: "Profile 7" } }), false);
+  assert.equal(equalBindings(native, { work: { browser: "Unknown Browser", profileDirectory: "Profile 2" } }), false);
+});
+
 test("sync snapshots fail closed for unknown states and duplicate shared identities", () => {
   assert.equal(normalizeSyncSnapshot(snapshot({ state: "toString" })), null);
   assert.equal(normalizeSyncSnapshot(snapshot({ enabled: "true" })), null);
