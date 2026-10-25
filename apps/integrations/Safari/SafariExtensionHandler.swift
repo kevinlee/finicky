@@ -46,7 +46,7 @@ final class SafariExtensionHandler: SFSafariExtensionHandler {
     private func open(_ url: URL) {
         Task { @MainActor in
             do { try FinickyBridge.open([url], prompt: true) }
-            catch { logger.error("Could not hand a link to Finicky Plus: \(error.localizedDescription)") }
+            catch { logger.error("Could not hand a link to Waystile: \(error.localizedDescription)") }
         }
     }
 }

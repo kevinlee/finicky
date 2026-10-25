@@ -2,7 +2,7 @@ import AppIntents
 import Foundation
 
 struct OpenFinickyURLsIntent: AppIntent {
-    static var title: LocalizedStringResource = "Open URLs with Finicky Plus"
+    static var title: LocalizedStringResource = "Open URLs with Waystile"
     static var description = IntentDescription("Open one or more links using routing rules, the profile picker, or a specific browser profile.")
     static var openAppWhenRun: Bool = false
 
@@ -23,7 +23,7 @@ struct OpenFinickyURLsIntent: AppIntent {
 
 struct SetFinickyDefaultIntent: AppIntent {
     static var title: LocalizedStringResource = "Set Default Browser Profile"
-    static var description = IntentDescription("Change the default destination inside Finicky Plus. Your macOS default-browser setting is not changed.")
+    static var description = IntentDescription("Change the default destination inside Waystile. Your macOS default-browser setting is not changed.")
     static var openAppWhenRun: Bool = false
 
     @Parameter(title: "Browser", default: "Google Chrome") var browser: String
@@ -39,8 +39,8 @@ struct SetFinickyDefaultIntent: AppIntent {
 }
 
 struct OpenFinickyClipboardIntent: AppIntent {
-    static var title: LocalizedStringResource = "Open Clipboard with Finicky Plus"
-    static var description = IntentDescription("Open web links from the clipboard using Finicky Plus.")
+    static var title: LocalizedStringResource = "Open Clipboard with Waystile"
+    static var description = IntentDescription("Open web links from the clipboard using Waystile.")
     static var openAppWhenRun: Bool = false
     @Parameter(title: "Show Profile Picker", default: true) var prompt: Bool
 
@@ -52,7 +52,7 @@ struct OpenFinickyClipboardIntent: AppIntent {
 
 struct CopyCleanFinickyURLIntent: AppIntent {
     static var title: LocalizedStringResource = "Copy Clean URL"
-    static var description = IntentDescription("Ask Finicky Plus to remove tracking parameters and copy the cleaned link.")
+    static var description = IntentDescription("Ask Waystile to remove tracking parameters and copy the cleaned link.")
     static var openAppWhenRun: Bool = false
     @Parameter(title: "URL") var url: URL
 
@@ -64,7 +64,7 @@ struct CopyCleanFinickyURLIntent: AppIntent {
 }
 
 struct OpenFinickySettingsIntent: AppIntent {
-    static var title: LocalizedStringResource = "Open Finicky Plus Settings"
+    static var title: LocalizedStringResource = "Open Waystile Settings"
     static var openAppWhenRun: Bool = false
 
     func perform() async throws -> some IntentResult {
@@ -76,6 +76,6 @@ struct OpenFinickySettingsIntent: AppIntent {
 struct FinickyAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: OpenFinickyClipboardIntent(), phrases: ["Open links with \(.applicationName)"], shortTitle: "Open Clipboard", systemImageName: "doc.on.clipboard")
-        AppShortcut(intent: OpenFinickySettingsIntent(), phrases: ["Open \(.applicationName) settings"], shortTitle: "Finicky Settings", systemImageName: "gearshape")
+        AppShortcut(intent: OpenFinickySettingsIntent(), phrases: ["Open \(.applicationName) settings"], shortTitle: "Waystile Settings", systemImageName: "gearshape")
     }
 }

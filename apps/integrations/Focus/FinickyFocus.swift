@@ -7,7 +7,7 @@ struct FinickyFocusExtension: AppIntentsExtension {}
 
 struct FinickyBrowserFocusFilter: SetFocusFilterIntent {
     static var title: LocalizedStringResource = "Browser Profile"
-    static var description = IntentDescription("Use a browser profile while this Focus is active, then restore the previous Finicky Plus default.")
+    static var description = IntentDescription("Use a browser profile while this Focus is active, then restore the previous Waystile default.")
     static var openAppWhenRun: Bool = false
 
     // Optional values revert to nil when the system clears the Focus filter.
@@ -20,7 +20,7 @@ struct FinickyBrowserFocusFilter: SetFocusFilterIntent {
         if let browser, !browser.isEmpty {
             return DisplayRepresentation(title: "\(browser)", subtitle: "\(profile ?? profileDirectory ?? "Default profile")")
         }
-        return DisplayRepresentation(title: "Browser Profile", subtitle: "Use the normal Finicky Plus default")
+        return DisplayRepresentation(title: "Browser Profile", subtitle: "Use the normal Waystile default")
     }
 
     func perform() async throws -> some IntentResult {

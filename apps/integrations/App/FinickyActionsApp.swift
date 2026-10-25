@@ -9,7 +9,7 @@ struct FinickyActionsApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Finicky Actions") {
+        WindowGroup("Waystile Actions") {
             IntegrationView()
         }
         .windowResizability(.contentSize)
@@ -21,25 +21,25 @@ private struct IntegrationView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Label("Finicky Actions", systemImage: "arrow.triangle.branch")
+            Label("Waystile Actions", systemImage: "arrow.triangle.branch")
                 .font(.title.bold())
             Text("Use your browser profiles from Shortcuts, Safari, the Share menu, and Focus modes.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             GroupBox("Shortcuts") {
-                Text("Search for Finicky Actions in Shortcuts to open links, choose a default profile, open the clipboard, or copy a clean URL.")
+                Text("Search for Waystile Actions in Shortcuts to open links, choose a default profile, open the clipboard, or copy a clean URL.")
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(5)
             }
             GroupBox("Safari and sharing") {
-                Text("Enable Finicky Safari in Safari’s Extensions settings. Use its toolbar button or right-click a link to choose a profile. In other apps, choose Open with Finicky Plus from the Share menu.")
+                Text("Enable Waystile Safari in Safari’s Extensions settings. Use its toolbar button or right-click a link to choose a profile. In other apps, choose Open with Waystile from the Share menu.")
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(5)
             }
             GroupBox("Focus modes") {
-                Text("Add the Browser Profile filter to a Focus in System Settings. Finicky Plus restores your previous default when the filter is cleared.")
+                Text("Add the Browser Profile filter to a Focus in System Settings. Waystile restores your previous default when the filter is cleared.")
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(5)
@@ -51,7 +51,7 @@ private struct IntegrationView: View {
                     }
                 }
                 Spacer()
-                Button("Open Finicky Plus") {
+                Button("Open Waystile") {
                     do { try FinickyBridge.send("settings") }
                     catch { self.error = error.localizedDescription }
                 }

@@ -8,7 +8,7 @@ final class ShareViewController: NSViewController {
 
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 130))
-        let heading = NSTextField(labelWithString: "Open with Finicky Plus")
+        let heading = NSTextField(labelWithString: "Open with Waystile")
         heading.font = .systemFont(ofSize: 17, weight: .semibold)
         status.textColor = .secondaryLabelColor
         progress.style = .spinning

@@ -8,8 +8,8 @@ enum FinickyBridgeError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL: return "Finicky Plus requires a valid HTTP or HTTPS web link."
-        case .notInstalled: return "Open Finicky Plus once to register it, then try again."
+        case .invalidURL: return "Waystile requires a valid HTTP or HTTPS web link."
+        case .notInstalled: return "Open Waystile once to register it, then try again."
         case .noLinks: return "No web links were found in the shared content."
         }
     }

@@ -11,7 +11,9 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>Waystile Safari</string>
+	<key>CFBundleDisplayName</key>
+	<string>Waystile Safari</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
@@ -46,7 +48,7 @@
 				<key>Command</key>
 				<string>open-link</string>
 				<key>Text</key>
-				<string>Open Link with Finicky Plus</string>
+				<string>Open Link with Waystile</string>
 			</dict>
 		</array>
 		<key>SFSafariToolbarItem</key>
@@ -56,7 +58,7 @@
 			<key>Identifier</key>
 			<string>OpenWithFinickyPlus</string>
 			<key>Label</key>
-			<string>Open with Finicky Plus</string>
+			<string>Open with Waystile</string>
 			<key>Image</key>
 			<string>ToolbarIcon.pdf</string>
 		</dict>

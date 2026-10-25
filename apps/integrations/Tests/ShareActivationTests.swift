@@ -14,7 +14,7 @@ final class ShareActivationTests: XCTestCase {
         let extensionBundle = try XCTUnwrap(Bundle(url: extensionURL))
         XCTAssertEqual(
             extensionBundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
-            "Open with Finicky Plus"
+            "Open with Waystile"
         )
         let iconName = try XCTUnwrap(
             extensionBundle.object(forInfoDictionaryKey: "CFBundleIconFile") as? String
