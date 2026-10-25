@@ -39,6 +39,7 @@ export interface Features {
   expandShortURLs: boolean;
   extraShorteners: string[];
   historyEnabled: boolean;
+  learningEnabled: boolean;
   nativeApps: boolean;
   nativeAppServices?: string[] | null;
   transformScript?: string;
@@ -59,6 +60,38 @@ export interface HistoryEntry {
   matchedRule?: number;
   timestamp: string;
   error?: string;
+}
+
+export interface LearningDestination {
+  id: string;
+  name: string;
+}
+
+export interface LearningObservation {
+  id: string;
+  domain: string;
+  sourceApp?: string;
+  observedAt: string;
+  confirmedDestinationId?: string;
+  confirmedDestinationName?: string;
+  predictedDestinationId?: string;
+  predictedDestinationName?: string;
+  reason?: string;
+  feedbackKind?: string;
+}
+
+export interface LearningSnapshot {
+  enabled: boolean;
+  observations: LearningObservation[];
+  feedbackCount: number;
+  destinations: LearningDestination[];
+  evaluation: {
+    evaluated: number;
+    predicted: number;
+    correct: number;
+    abstained: number;
+  };
+  limitations?: string[];
 }
 
 export interface IntegrationInfo {

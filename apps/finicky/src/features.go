@@ -49,7 +49,7 @@ func enqueueURL(raw string, opener *resolver.OpenerInfo, background, prompt bool
 		return
 	}
 	r.Prompt = r.Prompt || prompt
-	info := URLInfo{URL: r.URL, Request: r, Opener: opener, OpenInBackground: background || r.Background, Modifiers: util.GetModifierKeys()}
+	info := URLInfo{ReceivedAt: time.Now().UTC(), LearningEpoch: learningEpoch.Load(), URL: r.URL, Request: r, Opener: opener, OpenInBackground: background || r.Background, Modifiers: util.GetModifierKeys()}
 	// Apple event callbacks run on the main thread: never block the UI on a picker.
 	select {
 	case urlListener <- info:
@@ -128,6 +128,7 @@ func routeRequest(info URLInfo) {
 		modifier = "fn"
 	}
 	modifierHeld := modifier != "none" && info.Modifiers[modifier]
+	neutralChoice := false
 	prompt := r.Prompt || target.Action == "prompt" || f.PromptMode == "always" || f.PromptMode == "unmatched" && target.MatchedRule == nil
 	if modifierHeld {
 		if f.AlternativeBrowser != "" && f.AlternativeBrowser != "prompt" {
@@ -157,6 +158,7 @@ func routeRequest(info URLInfo) {
 		}
 		selected := selectedPickerTarget(*target, destinations[choice.Index].Browser, r, choice)
 		target = &selected
+		neutralChoice = true
 		if e := browser.ValidateTarget(*target); e != nil {
 			handleRuntimeError(e)
 			return
@@ -189,6 +191,7 @@ func routeRequest(info URLInfo) {
 	} else {
 		C.SetStatusItemError(false)
 	}
+	recordLearningChoice(info, rf, *target, neutralChoice, err)
 	if f.HistoryEnabled && !dryRun && !target.Private {
 		entry := linkfeatures.HistoryEntry{MatchedRule: target.MatchedRule, URL: target.URL, OriginalURL: r.URL, Browser: target.Name, Profile: target.Profile, ProfileDirectory: target.ProfileDirectory, Timestamp: time.Now()}
 		if info.Opener != nil {
@@ -442,6 +445,9 @@ func applyDefaultRequest(rf *rules.RulesFile, r urlrequest.Request) error {
 
 func setupFeatureBridge() {
 	window.FeatureMessageHandler = func(msg map[string]interface{}) bool {
+		if handleLearningMessage(msg) {
+			return true
+		}
 		kind, _ := msg["type"].(string)
 		switch kind {
 		case "grantBrowserAccess":

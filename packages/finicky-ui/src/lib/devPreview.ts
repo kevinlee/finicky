@@ -1,6 +1,6 @@
 import { featureDefaults } from "./featuresModel";
 import { normalizeRulesFile } from "./rulesModel";
-import type { HistoryEntry } from "../types";
+import type { HistoryEntry, LearningObservation, LearningSnapshot } from "../types";
 // A browser-only development bridge. Native builds never run this branch.
 // All data is illustrative; saving here changes localStorage, not Finicky.
 if (import.meta.env.DEV && !window.webkit?.messageHandlers?.finicky) {
@@ -90,6 +90,55 @@ if (import.meta.env.DEV && !window.webkit?.messageHandlers?.finicky) {
       timestamp: new Date(Date.now() - 3_600_000).toISOString(),
     },
   ];
+  // Synthetic examples only; browsing activity is never read by this preview.
+  let learningObservations: LearningObservation[] = [
+    {
+      id: "learning-preview-1",
+      domain: "example.com",
+      sourceApp: "Google Chrome",
+      observedAt: new Date().toISOString(),
+      confirmedDestinationId: "work",
+      confirmedDestinationName: "Work",
+      predictedDestinationId: "work",
+      predictedDestinationName: "Work",
+      feedbackKind: "chooser",
+    },
+    {
+      id: "learning-preview-2",
+      domain: "example.edu",
+      sourceApp: "Google Chrome",
+      observedAt: new Date(Date.now() - 3_600_000).toISOString(),
+      confirmedDestinationId: "academic",
+      confirmedDestinationName: "Academic",
+      feedbackKind: "chooser",
+    },
+    {
+      id: "learning-preview-3",
+      domain: "example.org",
+      sourceApp: "Google Chrome",
+      observedAt: new Date(Date.now() - 7_200_000).toISOString(),
+    },
+  ];
+  const initialLearningChoices = new Map(learningObservations.map((entry) => [entry.id, entry.confirmedDestinationId]));
+  const learningSnapshot = (): LearningSnapshot => {
+    const labeled = learningObservations.filter((entry) => entry.confirmedDestinationId);
+    const predicted = labeled.filter((entry) => entry.predictedDestinationId);
+    return {
+      enabled: Boolean(rules.features?.learningEnabled),
+      observations: learningObservations,
+      feedbackCount: labeled.length,
+      destinations: (rules.profiles || [])
+        .filter((profile: any) => !profile.hidden && !profile.private)
+        .map((profile: any) => ({ id: profile.id, name: profile.name })),
+      evaluation: {
+        evaluated: labeled.length,
+        predicted: predicted.length,
+        correct: predicted.filter((entry) => entry.predictedDestinationId === initialLearningChoices.get(entry.id)).length,
+        abstained: labeled.length - predicted.length,
+      },
+      limitations: ["Development preview: these examples are illustrative and no links are collected."],
+    };
+  };
   const send = (type: string, message: unknown) =>
     window.finicky.receiveMessage({ type, message });
   // Mirror Go's wire format, including single-string and null match values.
@@ -125,6 +174,43 @@ if (import.meta.env.DEV && !window.webkit?.messageHandlers?.finicky) {
         case "getHistory":
           send("history", history);
           break;
+        case "getLearning":
+          send("learning", learningSnapshot());
+          break;
+        case "setLearningEnabled":
+          rules.features = { ...rules.features, learningEnabled: msg.enabled === true };
+          localStorage.setItem(storageKey, JSON.stringify(rules));
+          send("rules", rulesMessage());
+          send("features", rules.features);
+          send("learningResult", { success: true, operation: msg.type });
+          send("learning", learningSnapshot());
+          break;
+        case "clearLearning":
+          learningObservations = [];
+          initialLearningChoices.clear();
+          send("learningResult", { success: true, operation: msg.type });
+          send("learning", learningSnapshot());
+          break;
+        case "deleteLearning":
+          learningObservations = learningObservations.filter((entry) => entry.id !== msg.requestId);
+          initialLearningChoices.delete(msg.requestId);
+          send("learningResult", { success: true, operation: msg.type });
+          send("learning", learningSnapshot());
+          break;
+        case "correctLearning": {
+          const entry = learningObservations.find((entry) => entry.id === msg.requestId);
+          const destination = learningSnapshot().destinations.find((entry) => entry.id === msg.destinationId);
+          if (!entry?.confirmedDestinationId || !destination) {
+            send("learningResult", { success: false, operation: msg.type, error: "This example or destination is no longer available." });
+            break;
+          }
+          entry.confirmedDestinationId = destination.id;
+          entry.confirmedDestinationName = destination.name;
+          entry.feedbackKind = "correction";
+          send("learningResult", { success: true, operation: msg.type });
+          send("learning", learningSnapshot());
+          break;
+        }
         case "clearHistory":
           history = [];
           send("historyCleared", { success: true });

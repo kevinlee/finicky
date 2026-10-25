@@ -10,6 +10,10 @@ window.addEventListener("click", event => {
     if (!["http:", "https:"].includes(target.protocol)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    window.location.href = "finicky-plus://open?url=" + encodeURIComponent(target.href) + (event.shiftKey ? "&prompt=true" : "");
+    const extensionAPI = typeof browser !== "undefined" ? browser : chrome;
+    // The background adds browser-reported privacy from the real sender tab.
+    // No page-provided tab identifier or privacy flag crosses this boundary.
+    const sent = extensionAPI.runtime.sendMessage({type: "finicky-open-link", url: target.href, prompt: event.shiftKey});
+    sent?.catch(() => {});
   } catch { /* Ignore unsupported links. */ }
 }, true);

@@ -18,6 +18,7 @@ type Features struct {
 	ExpandShortURLs *bool    `json:"expandShortURLs,omitempty"`
 	ExtraShorteners []string `json:"extraShorteners,omitempty"`
 	HistoryEnabled  bool     `json:"historyEnabled,omitempty"`
+	LearningEnabled bool     `json:"learningEnabled,omitempty"`
 	NativeApps      bool     `json:"nativeApps,omitempty"`
 	// nil selects all supported services; an explicit empty list selects none.
 	NativeAppServices           []string `json:"nativeAppServices"`

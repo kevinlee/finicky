@@ -2,6 +2,7 @@
   export let name = "route";
   export let size = 18;
   const paths: Record<string, string> = {
+    learning: "M5 4h14v16H5ZM8 15l3-4 3 2 3-5M8 7h3",
     history: "M3 11a9 9 0 1 1 2 7M3 4v7h7m2-4v5l4 2",
     route: "M6 3v10a5 5 0 0 0 5 5h7m-4-4 4 4-4 4M6 8h6a5 5 0 0 0 5-5",
     profiles:

@@ -1,7 +1,7 @@
 {
   "name": "Finicky Profiles",
   "description": "Open links and the current page in any browser or profile with the Finicky fork.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "manifest_version": 3,
   "homepage_url": "https://github.com/kevinlee/finicky",
   "background": {

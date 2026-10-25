@@ -41,6 +41,8 @@ type UpdateInfo struct {
 }
 
 type URLInfo struct {
+	ReceivedAt       time.Time
+	LearningEpoch    uint64
 	Request          urlrequest.Request
 	Modifiers        map[string]bool
 	URL              string
@@ -160,6 +162,9 @@ func main() {
 	}
 	if rf, e := rules.Load(); e == nil {
 		refreshMenuIcon(rf)
+		if err := reconcileLearning(rf); err != nil {
+			slog.Warn("Could not reconcile local learning data", "error", err)
+		}
 	}
 	for _, raw := range flag.Args() {
 		enqueueURL(raw, nil, false, *promptPtr)
@@ -175,6 +180,11 @@ func main() {
 	// When there is no JS config, rebuild the VM from the updated rules.
 	// When there is a JS config, JSON rules are loaded fresh in evaluateURL — nothing to do.
 	window.SaveRulesHandler = func(rf rules.RulesFile) error {
+		if err := reconcileLearning(rf); err != nil {
+			// Rules have already been saved. A corrupt optional learning store
+			// must not prevent the new routing settings from taking effect.
+			slog.Warn("Could not reconcile local learning data", "error", err)
+		}
 		vmMu.Lock()
 		defer vmMu.Unlock()
 		configPath := ""

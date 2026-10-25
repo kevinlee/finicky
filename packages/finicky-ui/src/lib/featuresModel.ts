@@ -9,6 +9,7 @@ export const featureDefaults: Features = {
   expandShortURLs: true,
   extraShorteners: [],
   historyEnabled: false,
+  learningEnabled: false,
   nativeApps: false,
 };
 

@@ -4,6 +4,8 @@ A personal fork of [Finicky](https://github.com/johnste/finicky) with visual pro
 
 The fork adds saved Work/Personal/Academic-style destinations, website and source-app rules, private windows, URL cleanup and transformation editors, recent history, profile access controls, and import/export. A companion app supplies native Shortcuts actions, Safari and Share extensions, and a Focus filter. Chromium and Firefox extensions are included separately.
 
+The Learning panel offers an opt-in local experiment: it learns from explicit profile choices and checks predictions in the background. It stores sanitized domains and source apps, excludes private and unknown sources, and provides corrections and deletion controls. Predictions do not change routing. See the [learning contract and evaluation limits](docs/LEARNING.md).
+
 ## Build this fork
 
 Requires macOS 13+, Xcode command-line tools, Go, Node.js, and npm. The native companion additionally needs full Xcode and XcodeGen.

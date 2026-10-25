@@ -20,6 +20,9 @@ type Request struct {
 	Private          bool
 	Background       bool
 	NewWindow        bool
+	// SourcePrivacy is caller-supplied browser metadata, not authenticated proof.
+	// Unknown and private sources must be excluded from learning.
+	SourcePrivacy string
 }
 
 func Parse(raw string) (Request, error) {
@@ -32,7 +35,7 @@ func Parse(raw string) (Request, error) {
 		if !validURL(u) {
 			return Request{}, fmt.Errorf("expected an http, https, or file URL")
 		}
-		return Request{Action: "open", URL: raw}, nil
+		return Request{Action: "open", URL: raw, SourcePrivacy: "unknown"}, nil
 	}
 	if u.Host == "open" && strings.HasPrefix(u.Path, "/") && len(u.Path) > 1 {
 		encoded := strings.TrimPrefix(u.Path, "/")
@@ -50,7 +53,7 @@ func Parse(raw string) (Request, error) {
 		if parseErr != nil || !webURL(target) {
 			return Request{}, fmt.Errorf("encoded request must contain a web URL")
 		}
-		return Request{Action: "open", URL: string(decoded)}, nil
+		return Request{Action: "open", URL: string(decoded), SourcePrivacy: "unknown"}, nil
 	}
 	action := u.Host
 	if action == "" {
@@ -59,9 +62,12 @@ func Parse(raw string) (Request, error) {
 			action = strings.Trim(u.Path, "/")
 		}
 	}
-	q := u.Query()
+	q, queryErr := url.ParseQuery(u.RawQuery)
 	flag := func(key string) bool { return q.Has(key) && q.Get(key) != "false" && q.Get(key) != "0" }
-	r := Request{Action: action, Focus: q.Get("focus"), URL: q.Get("url"), Browser: q.Get("browser"), Profile: q.Get("profile"), ProfileDirectory: q.Get("profileDirectory"), Prompt: flag("prompt"), Private: flag("private"), Background: flag("background"), NewWindow: flag("newWindow")}
+	r := Request{Action: action, Focus: q.Get("focus"), URL: q.Get("url"), Browser: q.Get("browser"), Profile: q.Get("profile"), ProfileDirectory: q.Get("profileDirectory"), Prompt: flag("prompt"), Private: flag("private"), Background: flag("background"), NewWindow: flag("newWindow"), SourcePrivacy: "unknown"}
+	if values := q["sourcePrivacy"]; queryErr == nil && len(values) == 1 && (values[0] == "public" || values[0] == "private") {
+		r.SourcePrivacy = values[0]
+	}
 	if r.Browser == "" {
 		r.Browser = q.Get("app")
 	}

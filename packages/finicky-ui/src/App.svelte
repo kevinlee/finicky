@@ -4,6 +4,8 @@
   import LogViewer from "./pages/LogViewer.svelte";
   import About from "./pages/About.svelte";
   import History from "./pages/History.svelte";
+  import Learning from "./pages/Learning.svelte";
+  import { normalizeLearningSnapshot, reconcileLearningRules, withLearningEnabled } from "./lib/learningModel";
   import Integrations from "./pages/Integrations.svelte";
   import FeaturePreferences from "./components/FeaturePreferences.svelte";
   import {
@@ -29,6 +31,7 @@
   import type {
     ConfigInfo,
     HistoryEntry,
+    LearningSnapshot,
     IntegrationInfo,
     ConfigOptions,
     LogEntry,
@@ -43,6 +46,7 @@
     | "test"
     | "preferences"
     | "history"
+    | "learning"
     | "integrations"
     | "diagnostics"
     | "about";
@@ -52,6 +56,7 @@
     { id: "test", icon: "test", label: "Test a link" },
     { id: "preferences", icon: "preferences", label: "Preferences" },
     { id: "history", icon: "history", label: "History" },
+    { id: "learning", icon: "learning", label: "Learning" },
     { id: "integrations", icon: "code", label: "Integrations" },
   ];
   const knownApps = [
@@ -66,6 +71,7 @@
     test: "See exactly where a link will land.",
     preferences: "Make Finicky Plus feel at home on your Mac.",
     history: "Find a link’s path, or give it a fresh start.",
+    learning: "A little more understanding, one confirmed choice at a time.",
     integrations: "Your browser routing, connected to your workflow.",
     diagnostics: "A closer look at what’s happening.",
     about: "A little utility with a sense of direction.",
@@ -76,6 +82,7 @@
     test: "Test a link",
     preferences: "Preferences",
     history: "History",
+    learning: "Learning",
     integrations: "Integrations",
     diagnostics: "Diagnostics",
     about: "About Finicky Plus",
@@ -119,6 +126,10 @@
   let history: HistoryEntry[] = [];
   let historyLoaded = false;
   let clearingHistory = false;
+  let learning: LearningSnapshot | null = null;
+  let learningBusy = false;
+  let learningError = "";
+  let learningTimer: ReturnType<typeof setTimeout> | undefined;
   let integrations: IntegrationInfo | null = null;
   let exportedJSON = "";
   let importing = false;
@@ -253,6 +264,20 @@
       JSON.stringify(message),
     );
   }
+  function syncLearningEnabled(enabled: boolean) {
+    draft = withLearningEnabled(draft, enabled);
+    baseline = withLearningEnabled(baseline, enabled);
+    if (incoming) incoming = withLearningEnabled(incoming, enabled);
+  }
+  function learningRequest(message: { type: string; [key: string]: unknown }) {
+    if (learningBusy || saving || importing) return;
+    learningBusy = true;
+    send(message);
+    learningTimer = setTimeout(() => {
+      learningBusy = false;
+      learningError = "Finicky Plus has not confirmed this learning request. Refresh to check its current state before trying again.";
+    }, 12000);
+  }
   function receive(raw: any) {
     let message: any;
     try {
@@ -288,6 +313,30 @@
       case "history":
         history = Array.isArray(message.message) ? message.message : [];
         historyLoaded = true;
+        break;
+      case "learning": {
+        const snapshot = normalizeLearningSnapshot(message.message);
+        learningBusy = false;
+        clearTimeout(learningTimer);
+        if (!snapshot) {
+          learningError = "Finicky Plus returned incomplete learning data. Refresh to try again.";
+          break;
+        }
+        learning = snapshot;
+        learningError = "";
+        syncLearningEnabled(snapshot.enabled);
+        break;
+      }
+      case "learningResult":
+        if (message.message?.success !== true) {
+          learningBusy = false;
+          clearTimeout(learningTimer);
+          learningError = message.message?.error || "The learning request could not be completed.";
+        }
+        break;
+      case "features":
+        if (typeof message.message?.learningEnabled === "boolean")
+          syncLearningEnabled(message.message.learningEnabled);
         break;
       case "historyCleared":
         clearingHistory = false;
@@ -335,6 +384,7 @@
           toast.show("Settings imported", "success");
           send({ type: "getRules" });
           send({ type: "getHistory" });
+          if (learning) learningRequest({ type: "getLearning" });
         } else
           toast.show(
             "Settings were not imported",
@@ -355,7 +405,17 @@
         break;
       case "rules": {
         const next = normalizeRulesFile(message.message);
+        if (learning) learning = { ...learning, enabled: next.features?.learningEnabled === true };
+        const learningUpdate = !saving && loaded
+          ? reconcileLearningRules({ draft, baseline, incoming, externalChange }, next)
+          : null;
         if (saving) incoming = next;
+        else if (learningUpdate) {
+          draft = learningUpdate.draft;
+          baseline = learningUpdate.baseline;
+          incoming = learningUpdate.incoming;
+          externalChange = learningUpdate.externalChange;
+        }
         else if (!loaded || !dirty) {
           draft = next;
           baseline = clone(next);
@@ -366,6 +426,8 @@
           incoming = next;
           externalChange = true;
         }
+        if (learning && !saving && !importing && !learningBusy)
+          learningRequest({ type: "getLearning" });
         break;
       }
       case "saveRulesSuccess":
@@ -382,6 +444,7 @@
         savedOnce = true;
         testResult = null;
         clearTimeout(saveTimer);
+        if (learning) learningRequest({ type: "getLearning" });
         toast.show(
           isPreview
             ? "Preview changes saved"
@@ -425,9 +488,10 @@
     clearTimeout(saveTimer);
     clearTimeout(testTimer);
     clearTimeout(importTimer);
+    clearTimeout(learningTimer);
   });
   function apply() {
-    if (!dirty || saving || importing || externalChange || validationError)
+    if (!dirty || saving || importing || learningBusy || externalChange || validationError)
       return;
     saving = true;
     saveError = "";
@@ -1341,6 +1405,17 @@
           }}
           onOpen={(url) => send({ type: "openPicker", url })}
         />
+      {:else if page === "learning"}
+        <Learning
+          snapshot={learning}
+          busy={learningBusy || saving || importing}
+          error={learningError}
+          onRefresh={() => learningRequest({ type: "getLearning" })}
+          onEnabled={(enabled) => learningRequest({ type: "setLearningEnabled", enabled })}
+          onClear={() => learningRequest({ type: "clearLearning" })}
+          onCorrect={(requestId, destinationId) => learningRequest({ type: "correctLearning", requestId, destinationId })}
+          onDelete={(requestId) => learningRequest({ type: "deleteLearning", requestId })}
+        />
       {:else if page === "integrations"}
         <Integrations
           info={integrations}
@@ -1400,6 +1475,7 @@
           disabled={!loaded ||
             !dirty ||
             saving ||
+            learningBusy ||
             externalChange ||
             Boolean(validationError)}
           >{#if saving}<span class="spinner"></span>{/if}Apply changes</button

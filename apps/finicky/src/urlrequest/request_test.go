@@ -16,6 +16,44 @@ func TestProtocolPreservesUnicodeAndQuery(t *testing.T) {
 		}
 	}
 }
+
+func TestSourcePrivacyIsExplicitAndIndependentOfDestination(t *testing.T) {
+	for _, test := range []struct {
+		query, want string
+	}{
+		{"", "unknown"},
+		{"&sourcePrivacy=public", "public"},
+		{"&sourcePrivacy=private", "private"},
+		{"&sourcePrivacy=unknown", "unknown"},
+		{"&sourcePrivacy=PUBLIC", "unknown"},
+		{"&sourcePrivacy=false", "unknown"},
+		{"&sourcePrivacy=", "unknown"},
+		{"&sourcePrivacy=public&sourcePrivacy=private", "unknown"},
+		{"&sourcePrivacy=public&sourcePrivacy=public", "unknown"},
+		{"&sourcePrivacy=public&sourcePrivacy=%zz", "unknown"},
+	} {
+		for _, action := range []string{"open", "copy", "share"} {
+			raw := "finicky-plus://" + action + "?url=" + url.QueryEscape("https://example.com/日本?sourcePrivacy=public&x=1#fragment") + "&private=true" + test.query
+			r, err := Parse(raw)
+			if err != nil || r.SourcePrivacy != test.want || !r.Private || r.Action != action {
+				t.Errorf("Parse(%q) = %#v, %v; want privacy %q and private destination", raw, r, err, test.want)
+			}
+		}
+	}
+}
+
+func TestDirectAndLegacyURLsHaveUnknownSourcePrivacy(t *testing.T) {
+	for _, raw := range []string{
+		"https://example.com/?sourcePrivacy=public",
+		"file:///tmp/page.html",
+		"finicky://open/" + base64.RawURLEncoding.EncodeToString([]byte("https://example.com")) + "?sourcePrivacy=public",
+	} {
+		r, err := Parse(raw)
+		if err != nil || r.SourcePrivacy != "unknown" {
+			t.Errorf("Parse(%q) = %#v, %v; want unknown source privacy", raw, r, err)
+		}
+	}
+}
 func TestRejectInvalidRequests(t *testing.T) {
 	for _, raw := range []string{"javascript:alert(1)", "finicky://open?url=finicky://open", "finicky://set-default", "finicky://open?url=https://example.com&profileDirectory=../Default", "finicky-plus://open?url=file:///tmp/code.sh&browser=Terminal", "finicky://open/" + base64.StdEncoding.EncodeToString([]byte("finicky://set-default?browser=Safari"))} {
 		if _, err := Parse(raw); err == nil {
