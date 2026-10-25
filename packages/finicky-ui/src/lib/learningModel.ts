@@ -14,7 +14,15 @@ const count = (value: unknown): value is number =>
 
 /** Learning saves immediately; keep pending routing and preference edits intact. */
 export function withLearningEnabled(settings: RulesFile, enabled: boolean): RulesFile {
-  return { ...settings, features: { ...settings.features, learningEnabled: enabled } };
+  return {
+    ...settings,
+    features: {
+      ...settings.features,
+      learningEnabled: enabled,
+      // Go always emits this field; absent and null both select all services.
+      nativeAppServices: settings.features?.nativeAppServices ?? null,
+    },
+  };
 }
 
 interface LearningRulesState {
@@ -37,13 +45,18 @@ export function reconcileLearningRules(
   state: LearningRulesState,
   next: RulesFile,
 ): LearningRulesState | null {
-  if (stableJSON(withLearningEnabled(state.baseline, false)) !==
-      stableJSON(withLearningEnabled(next, false))) return null;
+  // getRules adds the display path, while saveAndApply sends a bare RulesFile.
+  // It is transport metadata, not an externally changed routing preference.
+  const { path: previousPath, ...baselineSettings } = state.baseline;
+  const { path: nextPath, ...nextSettings } = next;
+  if (stableJSON(withLearningEnabled(baselineSettings, false)) !==
+      stableJSON(withLearningEnabled(nextSettings, false))) return null;
   const enabled = next.features?.learningEnabled === true;
+  const path = nextPath ?? previousPath;
   return {
     ...state,
-    draft: withLearningEnabled(state.draft, enabled),
-    baseline: next,
+    draft: withLearningEnabled({ ...state.draft, ...(path ? { path } : {}) }, enabled),
+    baseline: withLearningEnabled({ ...next, ...(path ? { path } : {}) }, enabled),
     incoming: state.incoming ? withLearningEnabled(state.incoming, enabled) : null,
   };
 }

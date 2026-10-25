@@ -66,6 +66,48 @@ test("native rules before learning confirmation do not conflict with unsaved edi
   assert.notDeepEqual(state.draft, state.baseline);
 });
 
+test("bare native save notifications preserve the getRules path and unsaved private-default edit", () => {
+  const baseline = normalizeRulesFile({
+    defaultBrowser: "Google Chrome",
+    defaultProfileDirectory: "Default",
+    path: "~/preview/rules.json",
+    options: { keepRunning: true, logRequests: false, checkForUpdates: false },
+    rules: [],
+    profiles: [
+      { id: "work", name: "Work", browser: "Google Chrome", profileDirectory: "Profile 2" },
+      { id: "personal", name: "Personal", browser: "Google Chrome", profileDirectory: "Default" },
+      { id: "academic", name: "Academic", browser: "Google Chrome", profileDirectory: "Profile 3" },
+    ],
+    features: { learningEnabled: false },
+  });
+  const draft = { ...baseline, defaultPrivate: true };
+  // saveAndApply omits path, and Go omits a false learningEnabled value.
+  const { path, ...nativeSaved } = baseline;
+  const next = { ...nativeSaved, features: { learningEnabled: true, nativeAppServices: null } };
+  const state = reconcileLearningRules({ draft, baseline, incoming: null, externalChange: false }, next);
+  assert.notEqual(state, null);
+  assert.equal(state.externalChange, false);
+  assert.equal(state.draft.defaultPrivate, true);
+  assert.equal(state.baseline.defaultPrivate, undefined);
+  assert.equal(state.draft.path, path);
+  assert.equal(state.baseline.path, path);
+  assert.equal(state.draft.features.learningEnabled, true);
+  assert.notDeepEqual(state.draft, state.baseline);
+});
+
+test("first learning save normalizes native null defaults without inventing pending edits", () => {
+  const baseline = normalizeRulesFile({ defaultBrowser: "Chrome", rules: [], path: "~/rules.json" });
+  const next = normalizeRulesFile({ defaultBrowser: "Chrome", rules: [], features: { learningEnabled: true, nativeAppServices: null } });
+  const state = reconcileLearningRules({ draft: baseline, baseline, incoming: null, externalChange: false }, next);
+  assert.notEqual(state, null);
+  assert.equal(state.externalChange, false);
+  assert.deepEqual(state.draft, state.baseline);
+  // An explicit empty service list means none, so it remains a genuine difference.
+  assert.equal(reconcileLearningRules({ draft: baseline, baseline, incoming: null, externalChange: false }, {
+    ...next, features: { learningEnabled: true, nativeAppServices: [] },
+  }), null);
+});
+
 test("learning updates preserve genuine conflicts and reject unrelated incoming changes", () => {
   const baseline = normalizeRulesFile({ defaultBrowser: "Chrome", rules: [] });
   const draft = { ...baseline, defaultBrowser: "Safari" };

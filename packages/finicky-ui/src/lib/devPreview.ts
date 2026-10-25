@@ -177,14 +177,17 @@ if (import.meta.env.DEV && !window.webkit?.messageHandlers?.finicky) {
         case "getLearning":
           send("learning", learningSnapshot());
           break;
-        case "setLearningEnabled":
+        case "setLearningEnabled": {
           rules.features = { ...rules.features, learningEnabled: msg.enabled === true };
           localStorage.setItem(storageKey, JSON.stringify(rules));
-          send("rules", rulesMessage());
+          // Native saveAndApply emits no display path and serializes nil services as null.
+          const { path: _path, ...savedRules } = rulesMessage();
+          send("rules", { ...savedRules, features: { ...rules.features, nativeAppServices: rules.features.nativeAppServices ?? null } });
           send("features", rules.features);
           send("learningResult", { success: true, operation: msg.type });
           send("learning", learningSnapshot());
           break;
+        }
         case "clearLearning":
           learningObservations = [];
           initialLearningChoices.clear();
