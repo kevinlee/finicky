@@ -40,7 +40,7 @@ if [[ "$phase" == sign || "$phase" == sign-companion ]]; then
       --entitlements "$source_root/apps/integrations/Focus/FinickyFocus.entitlements" "$app/Contents/Extensions/Finicky Focus.appex"
     codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" \
       --entitlements "$source_root/apps/integrations/App/FinickyActions.entitlements" "$app"
-    "$source_root/scripts/check-integration-signing.sh" --require-team "$app"
+    bash "$source_root/scripts/check-integration-signing.sh" --require-team "$app"
   else
     [[ ! -d "$app/Contents/PlugIns" && ! -d "$app/Contents/Extensions" ]] || { echo 'Use sign-companion for embedded extensions' >&2; exit 1; }
     codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$app"
