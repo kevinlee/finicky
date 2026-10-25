@@ -242,8 +242,8 @@ func CheckForUpdatesIfEnabled(vm *goja.Runtime) (releaseInfo *ReleaseInfo, updat
 		return &ReleaseInfo{
 			HasUpdate:     true,
 			LatestVersion: mockVersion,
-			DownloadUrl:   fmt.Sprintf("https://github.com/johnste/finicky/releases/tag/v%s", mockTag),
-			ReleaseUrl:    fmt.Sprintf("https://github.com/johnste/finicky/releases/tag/v%s", mockTag),
+			DownloadUrl:   fmt.Sprintf("https://github.com/kevincorvallis/waystile/releases/tag/v%s", mockTag),
+			ReleaseUrl:    fmt.Sprintf("https://github.com/kevincorvallis/waystile/releases/tag/v%s", mockTag),
 		}, true, nil
 	}
 

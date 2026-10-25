@@ -1,8 +1,8 @@
-# Profile-first Finicky
+# Waystile interface and development
 
-This branch redesigns Finicky's existing Svelte settings window and extends its native routing engine. It is not a separate browser-routing app.
+Waystile extends Finicky's native routing engine with a profile-oriented Svelte settings window. It keeps the existing routing bridge and configuration contracts while adding visual controls for everyday use.
 
-The interface centers on named browser destinations, ordered rules, and testing links with a source application. Visual rules remain in Finicky's existing `rules.json`; JavaScript configurations keep their existing priority. The UI does not attempt to execute, import, or overwrite custom JavaScript.
+The interface centers on named browser destinations, ordered rules, and testing links with a source application. Visual rules remain in the existing `rules.json`; JavaScript configurations keep their priority. The UI does not attempt to execute, import, or overwrite custom JavaScript. See the [shared UI foundation](docs/UI.md) for typography, color, controls, and interaction conventions.
 
 ## Develop the interface
 
@@ -24,7 +24,7 @@ Requires macOS, Xcode command-line tools, Go 1.24 or later, and Node.js 22 or la
 bash scripts/build-preview.sh
 ```
 
-This produces `apps/finicky/build/Finicky-arm64.app` on Apple Silicon, or `Finicky-amd64.app` on Intel. It does not replace `/Applications/Finicky.app`. The upstream `scripts/build.sh` has installation side effects when called without a target; use the preview wrapper for development.
+This produces an internal `apps/finicky/build/Finicky-arm64.app` bundle on Apple silicon, or `Finicky-amd64.app` on Intel. The internal build names remain for compatibility. Neither `scripts/build.sh` nor the preview wrapper installs an application or changes the default browser. Use `scripts/build-fork.sh` to produce the public `Waystile.app` bundle.
 
 To test the native window alongside the installed router:
 
@@ -32,7 +32,7 @@ To test the native window alongside the installed router:
 bash scripts/run-preview.sh
 ```
 
-The launcher makes a separate **Finicky Preview** bundle and uses an isolated rules file under the ignored build directory. It leaves the default browser and other Finicky processes alone and simulates browser launches. Pass an explicit fixture file as the first argument to exercise another configuration. Use this launcher for isolated testing; opening the regular build directly starts normal Finicky behavior.
+The launcher makes a separate **Waystile Preview** bundle and uses an isolated rules file under the ignored build directory. It leaves the default browser and installed router alone and simulates browser launches. Pass an explicit fixture file as the first argument to exercise another configuration. Opening the regular app directly starts normal routing behavior.
 
 ## Profile directories
 

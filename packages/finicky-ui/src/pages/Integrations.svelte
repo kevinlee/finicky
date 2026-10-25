@@ -38,7 +38,7 @@
       const parsed = JSON.parse(value);
       if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.rules))
         throw new Error(
-          "Choose a Finicky settings JSON file with a rules array.",
+          "Choose a Waystile settings JSON file with a rules array.",
         );
       importSummary = `${parsed.rules.length} rules and ${Array.isArray(parsed.profiles) ? parsed.profiles.length : 0} profiles ready to import.`;
     } catch (error) {
@@ -124,8 +124,8 @@
         dynamic values.
       </p>
       <p>
-        The optional Finicky Actions companion adds native Shortcuts actions.
-        Open it once after installing, then search for Finicky in the Shortcuts
+        The optional Waystile Actions companion adds native Shortcuts actions.
+        Open it once after installing, then search for Waystile in the Shortcuts
         action library.
       </p>
     </div>
@@ -184,12 +184,12 @@
       <h3>Browser extensions</h3>
       <p>
         The companion Chromium and Firefox extensions provide toolbar and
-        link-menu actions. Safari uses the extension bundled with Finicky
+        link-menu actions. Safari uses the extension bundled with Waystile
         Actions; enable it in Safari Settings → Extensions after installing the
         companion app.
       </p>
       <p>
-        For the Mac share menu, enable the Finicky share extension in System
+        For the Mac share menu, enable the Waystile share extension in System
         Settings → General → Login Items & Extensions → Sharing. Extension
         availability depends on which companion components are installed.
       </p>
@@ -201,9 +201,9 @@
     <div>
       <h3>External links need the default-browser setting</h3>
       <p>
-        Select Finicky Plus in System Settings → Desktop & Dock → Default web
+        Select Waystile in System Settings → Desktop & Dock → Default web
         browser. Links clicked inside an existing browser tab need a browser
-        extension or an explicit Finicky URL.
+        extension or an explicit Waystile integration URL.
       </p>
     </div>
   </div>

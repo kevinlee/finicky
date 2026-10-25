@@ -127,7 +127,7 @@ export const beginSyncRequest = (view: SyncViewState, operation: string): SyncVi
 
 export function receiveSyncSnapshot(view: SyncViewState, raw: unknown): SyncViewState {
   const snapshot = normalizeSyncSnapshot(raw);
-  if (!snapshot) return { ...view, pending: "", error: "Finicky Plus returned incomplete sync information. Refresh to try again." };
+  if (!snapshot) return { ...view, pending: "", error: "Waystile returned incomplete sync information. Refresh to try again." };
   const complete = view.pending === "getSync" || Boolean(view.pending && view.resultSucceeded);
   return { ...view, snapshot, sawSnapshot: true, pending: complete ? "" : view.pending, error: complete ? "" : view.error };
 }

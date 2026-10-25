@@ -119,7 +119,7 @@ void FinickyRequestBrowserAccess(unsigned long long requestID) {
         }
         accessPanel = [NSOpenPanel openPanel];
         accessPanel.title = @"Allow Browser Profile Access";
-        accessPanel.message = @"Choose your browser’s data folder, such as Google/Chrome or Firefox. Finicky Plus will read profile names from this folder.";
+        accessPanel.message = @"Choose your browser’s data folder, such as Google/Chrome or Firefox. Waystile will read profile names from this folder.";
         accessPanel.prompt = @"Allow Access";
         accessPanel.canChooseDirectories = YES;
         accessPanel.canChooseFiles = NO;

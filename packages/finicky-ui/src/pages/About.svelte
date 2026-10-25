@@ -1,16 +1,17 @@
 <script lang="ts">
   import Icon from "../components/StudioIcon.svelte";
+  import waystileIcon from "../../../../design/waystile-icon.svg";
   let { version }: { version: string } = $props();
 </script>
 
 <section class="about-page" aria-labelledby="about-product-heading">
   <div class="about-product panel">
-    <span class="about-mark"><Icon name="route" size={28} /></span>
+    <img class="about-mark" src={waystileIcon} alt="" />
     <div>
-      <h2 id="about-product-heading">Finicky Plus</h2>
+      <h2 id="about-product-heading">Waystile</h2>
       <p class="about-version">Version {version || "development"} · Made for macOS</p>
-      <p class="about-description">A home for your browsers and profiles. Open every link in the right place with routing rules, a profile picker, and settings that travel with you.</p>
-      <a href="https://github.com/kevinlee/finicky" target="_blank" rel="noopener noreferrer" class="button small secondary about-repository">View project on GitHub <Icon name="external" size={14} /></a>
+      <p class="about-description">Every link in the right place. Route links to your browsers and profiles, choose a destination when you need to, and share routing settings between your Macs.</p>
+      <a href="https://github.com/kevincorvallis/waystile" target="_blank" rel="noopener noreferrer" class="button small secondary about-repository">View project on GitHub <Icon name="external" size={14} /></a>
     </div>
   </div>
 
@@ -18,7 +19,7 @@
     <div class="section-heading"><div><h2>Built on open source</h2><p>The foundations that make this app possible.</p></div></div>
     <div class="panel about-credits">
       <div><h3>Finicky</h3><p>Original app by <a href="https://github.com/johnste" target="_blank" rel="noopener noreferrer">John Sterling</a> and the <a href="https://github.com/johnste/finicky/graphs/contributors" target="_blank" rel="noopener noreferrer">Finicky contributors</a>.</p></div>
-      <div><h3>Original app icon</h3><p>Designed by <a href="https://github.com/uetchy" target="_blank" rel="noopener noreferrer">@uetchy</a>.</p></div>
+      <div><h3>Waystile icon</h3><p>An original route mark created for Waystile.</p></div>
       <div><h3>Interface foundations</h3><p><a href="https://lucide.dev" target="_blank" rel="noopener noreferrer">Lucide icons</a> and <a href="https://www.radix-ui.com/colors" target="_blank" rel="noopener noreferrer">Radix Colors</a>.</p></div>
       <div><h3>Support the foundation</h3><p><a href="https://github.com/sponsors/johnste" target="_blank" rel="noopener noreferrer">Sponsor the original Finicky project <Icon name="external" size={12} /></a></p></div>
     </div>
@@ -28,7 +29,7 @@
 <style>
   .about-page { max-width: 760px; }
   .about-product { display: flex; align-items: flex-start; gap: 20px; padding: 24px; }
-  .about-mark { width: 56px; height: 56px; border: 1px solid var(--card-border); background: var(--inset-bg); border-radius: 12px; color: var(--text-primary); display: grid; place-items: center; flex-shrink: 0; }
+  .about-mark { width: 64px; height: 64px; flex-shrink: 0; }
   .about-product h2 { font-size: 22px; font-weight: 650; letter-spacing: -0.4px; }
   .about-version { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
   .about-description { margin-top: 16px; color: var(--text-secondary); font-size: 14px; line-height: 1.6; max-width: 520px; }

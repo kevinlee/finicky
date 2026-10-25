@@ -1,9 +1,9 @@
 {
-  "name": "Finicky Profiles",
-  "description": "Open links and the current page in any browser or profile with the Finicky fork.",
-  "version": "0.4.0",
+  "name": "Waystile",
+  "description": "Open links and the current page in any browser or profile with Waystile.",
+  "version": "0.4.1",
   "manifest_version": 2,
-  "homepage_url": "https://github.com/kevinlee/finicky",
+  "homepage_url": "https://github.com/kevincorvallis/waystile",
   "background": {
     "scripts": [
       "background.js"

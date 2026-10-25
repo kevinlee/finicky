@@ -83,7 +83,7 @@ static NSImage *DestinationIcon(NSDictionary *destination) {
     self.panel = [[FinickyPickerPanel alloc] initWithContentRect:NSMakeRect(0, 0, 560, listHeight + 238)
                                                      styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
                                                        backing:NSBackingStoreBuffered defer:NO];
-    self.panel.title = @"Open Link — Finicky Plus";
+    self.panel.title = @"Open Link — Waystile";
     self.panel.delegate = self;
     self.panel.releasedWhenClosed = NO;
     self.panel.hidesOnDeactivate = NO;

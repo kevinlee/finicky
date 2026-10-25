@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, onDestroy } from "svelte";
   import Icon from "./components/StudioIcon.svelte";
+  import waystileIcon from "../../../design/waystile-icon.svg";
   import LogViewer from "./pages/LogViewer.svelte";
   import About from "./pages/About.svelte";
   import History from "./pages/History.svelte";
@@ -101,7 +102,7 @@
     sync: "Sync",
     integrations: "Integrations",
     diagnostics: "Diagnostics",
-    about: "About Finicky Plus",
+    about: "About Waystile",
   };
   const optionDefinitions: {
     key: keyof ConfigOptions;
@@ -118,7 +119,7 @@
     {
       key: "hideIcon",
       name: "Hide menu bar icon",
-      hint: "Keep Finicky Plus out of the menu bar. Takes effect after restarting Finicky Plus.",
+      hint: "Keep Waystile out of the menu bar. Takes effect after restarting Waystile.",
       fallback: false,
     },
     {
@@ -345,14 +346,14 @@
     send(message);
     learningTimer = setTimeout(() => {
       learningBusy = false;
-      learningError = "Finicky Plus has not confirmed this learning request. Refresh to check its current state before trying again.";
+      learningError = "Waystile has not confirmed this learning request. Refresh to check its current state before trying again.";
     }, 12000);
   }
   function syncRequest(message: { type: string; [key: string]: unknown }) {
     if (syncView.pending || (message.type !== "getSync" && syncBlocked)) return;
     syncView = beginSyncRequest(syncView, message.type);
     syncTimer = setTimeout(() => {
-      syncView = { ...syncView, pending: "", error: "Finicky Plus has not confirmed this sync request. Refresh to check its current state before trying again." };
+      syncView = { ...syncView, pending: "", error: "Waystile has not confirmed this sync request. Refresh to check its current state before trying again." };
     }, 20000);
     send(message);
   }
@@ -405,7 +406,7 @@
         learningBusy = false;
         clearTimeout(learningTimer);
         if (!snapshot) {
-          learningError = "Finicky Plus returned incomplete learning data. Refresh to try again.";
+          learningError = "Waystile returned incomplete learning data. Refresh to try again.";
           break;
         }
         learning = snapshot;
@@ -534,7 +535,7 @@
         toast.show(
           isPreview
             ? "Preview changes saved"
-            : "Changes written to Finicky Plus",
+            : "Changes written to Waystile",
           "success",
         );
         break;
@@ -545,7 +546,7 @@
         clearTimeout(saveTimer);
         saveError =
           message.message?.error ||
-          "Finicky Plus could not save these changes.";
+          "Waystile could not save these changes.";
         toast.show("Changes were not applied", "error", saveError);
         break;
       case "testUrlResult":
@@ -590,7 +591,7 @@
       submitted = null;
       externalChange = true;
       saveError =
-        "Finicky Plus has not confirmed this save. Reload the configuration to check what was written before applying again.";
+        "Waystile has not confirmed this save. Reload the configuration to check what was written before applying again.";
       send({ type: "getRules" });
     }, 12000);
   }
@@ -994,7 +995,7 @@
       testing = false;
       testResult = {
         error:
-          "Finicky Plus has not returned a result. Check Diagnostics, then try again.",
+          "Waystile has not returned a result. Check Diagnostics, then try again.",
       };
     }, 10000);
     send({
@@ -1014,10 +1015,10 @@
     <button
       class="brand"
       onclick={() => navigate("routing")}
-      aria-label="Finicky Plus home"
-      ><span class="brand-mark"><Icon name="route" size={25} /></span><span
+      aria-label="Waystile home"
+      ><img class="brand-mark" src={waystileIcon} alt="" /><span
         class="brand-name"
-        >Finicky Plus<span class="brand-sub">Browser routing</span></span
+        >Waystile<span class="brand-sub">Browser routing</span></span
       ></button
     >
     <nav aria-label="Main navigation">
@@ -1367,7 +1368,7 @@
           <div>
             <h3>A familiar name, an exact destination</h3>
             <p>
-              Labels and colors are saved in Finicky Plus. In Chrome, open <code
+              Labels and colors are saved in Waystile. In Chrome, open <code
                 >chrome://version</code
               >
               and find <strong>Profile Path</strong>. Its final folder name,
@@ -1446,7 +1447,7 @@
                   <div>
                     <h2>{targetName(testTarget(testResult))}</h2>
                     <p>
-                      {#if isPromptResult(testResult)}Finicky Plus will ask you
+                      {#if isPromptResult(testResult)}Waystile will ask you
                         where to open this link.{:else}{testResult?.browser} · {testProfileDescription(
                           testResult,
                         )}{/if}
@@ -1457,7 +1458,7 @@
                   <span
                     ><Icon name="check" size={15} />Resolved by {isPreview
                       ? "the preview"
-                      : "Finicky Plus"}</span
+                      : "Waystile"}</span
                   >
                   <p>
                     {knownApps.find((a) => a.id === sourceApp)?.name ||
@@ -1558,7 +1559,7 @@
         {#if updateInfo?.hasUpdate}<div class="info-panel">
             <Icon name="info" size={18} />
             <div>
-              <h3>Finicky Plus {updateInfo.version} is available</h3>
+              <h3>Waystile {updateInfo.version} is available</h3>
               <p>
                 <a
                   href={updateInfo.downloadUrl}
@@ -1727,7 +1728,7 @@
               placeholder="*example.edu/*"
               rows="3"></textarea>
             <p class="field-hint">
-              One Finicky Plus URL pattern per line. Use <code>*</code> as a
+              One Waystile URL pattern per line. Use <code>*</code> as a
               wildcard. {matchType === "both"
                 ? "The source app and a website pattern must both match."
                 : "Any matching pattern triggers this rule."}
@@ -1974,7 +1975,7 @@
         <div class="inline-note">
           <Icon name="info" size={14} />
           <p>
-            Finicky Plus saves a shortcut to this profile. Create or delete
+            Waystile saves a shortcut to this profile. Create or delete
             actual browser profiles in your browser.
           </p>
         </div>
@@ -2011,9 +2012,9 @@
     <div class="dialog-body">
       <p class="confirmation-copy" id="editor-dialog-description">
         {modal === "deleteRule"
-          ? `“${pendingRuleDeletion?.name || "This rule"}” will be removed from your draft. Apply changes to update Finicky Plus.`
+          ? `“${pendingRuleDeletion?.name || "This rule"}” will be removed from your draft. Apply changes to update Waystile.`
           : modal === "deleteProfile"
-            ? `Remove the saved “${pendingProfileDeletion?.name || "profile"}” label from Finicky Plus. Existing routing rules and the browser profile will stay in place.`
+            ? `Remove the saved “${pendingProfileDeletion?.name || "profile"}” label from Waystile. Existing routing rules and the browser profile will stay in place.`
             : externalChange
               ? "Load the latest configuration from disk? Your unapplied edits in this window will be discarded."
               : "Return to your last applied configuration? Your unapplied changes will be discarded."}

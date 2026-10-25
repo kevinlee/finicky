@@ -1,6 +1,6 @@
 # Local shadow learning
 
-Finicky Plus can collect a small local dataset of explicit browser-profile choices
+Waystile can collect a small local dataset of explicit browser-profile choices
 when the user turns learning on. Learning starts disabled. This implementation
 does not change routing, reorder the chooser, or preselect its suggested answer.
 The shadow suggestion is recorded for inspection and evaluation after the

@@ -98,7 +98,7 @@
   {#if !hasConfig}
     <div class="no-config-message">
       <a
-        href="https://github.com/johnste/finicky/wiki/Getting-started"
+        href="https://github.com/kevincorvallis/waystile#install"
         target="_blank"
         rel="noopener noreferrer"
         class="external-link"
@@ -212,7 +212,7 @@
     {:else if !updateInfo.updateCheckEnabled}
       <div class="status-card info">
         <h3>Update check is disabled</h3>
-        <a href="https://github.com/johnste/finicky/releases" target="_blank">Check releases</a>
+        <a href="https://github.com/kevincorvallis/waystile/releases" target="_blank">Check releases</a>
       </div>
     {/if}
   {/if}

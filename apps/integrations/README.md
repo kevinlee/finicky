@@ -1,25 +1,25 @@
-# Finicky Actions
+# Waystile Actions
 
-This macOS companion adds native system integrations to Finicky Plus. The Go routing app remains the URL handler; the companion and its sandboxed extensions send encoded `finicky-plus://` requests using `NSWorkspace`, without shell commands.
+The optional Waystile Actions companion supplies native macOS integrations. The main Waystile router remains the URL handler; the companion and its sandboxed extensions send encoded `finicky-plus://` requests through `NSWorkspace`.
 
 ## Included
 
 | Integration | Behavior |
 | --- | --- |
-| Open URLs with Finicky Plus | Accepts multiple web URLs, optional browser/profile/directory, picker toggle, and private/new-window/background options. |
-| Set Default Browser Profile | Changes the default destination and optional private mode inside Finicky Plus. |
+| Open URLs with Waystile | Opens multiple web URLs with an optional destination, picker, and supported private/new-window/background options. |
+| Set Default Browser Profile | Changes Waystile's default destination, not the macOS default-browser setting. |
 | Open Clipboard | Sends clipboard links through the picker or normal routing. |
-| Copy Clean URL | Asks the main app to clean and copy the supplied URL. |
-| Settings action | Opens the main Finicky Plus settings window. |
-| Browser Profile Focus filter | Applies a browser/profile and optional private mode while the Focus is active and requests restoration when cleared. |
-| Safari app extension | Toolbar button opens the current page in the picker; a context-menu item opens the clicked link. |
-| Share extension | Extracts web URLs from selected attributed content and URL/plain-text/RTF attachments, preserves link order, removes duplicates, and opens each in the picker. |
+| Copy Clean URL | Asks the router to clean and copy a supplied URL. |
+| Open Waystile Settings | Opens the router's settings window. |
+| Browser Profile Focus filter | Applies a destination during a Focus and requests restoration when cleared. |
+| Safari extension | Opens the current page from its toolbar or a clicked link from its context menu. |
+| Share extension | Extracts web links from shared URLs, plain text, and rich text; preserves order and removes duplicates. |
 
-These are implemented behaviors, not a claim that every integration executes on the tested Mac. Signed Settings, Open URLs, and Set Default Browser Profile Shortcuts actions and Safari toolbar/context-menu actions passed live checks. Build 5 passed Safari page-URL sharing, TextEdit RTF selection with labelled links, and Safari plain-text selection, including order, cleanup, deduplication, and cancellation. The main app's Choose Browser Service also passed a Safari multiple-link selection. Open Clipboard, Copy Clean URL, and OS delivery of Focus changes remain unverified. See the runtime results below. The extensions do not intercept ordinary navigation. Safari's content script only reads the link that the user right-clicked. The Share extension reads only items explicitly shared with it.
+The extensions do not intercept ordinary navigation. Safari's content script reads the link the user right-clicks. The Share extension reads the items explicitly shared with it. Each integration needs its own macOS permissions.
 
-## Build
+## Build and signing
 
-Requires Xcode with the macOS 13 SDK or newer and [XcodeGen](https://github.com/yonaskolb/XcodeGen). The companion's deployment target is macOS 13.
+Requires macOS, full Xcode with a macOS 13 or newer SDK, and [XcodeGen](https://github.com/yonaskolb/XcodeGen). The companion's deployment target is macOS 13.
 
 From the repository root:
 
@@ -27,9 +27,9 @@ From the repository root:
 scripts/build-integrations.sh
 ```
 
-The script generates the Xcode project, performs a clean build of the companion and all three embedded extensions, verifies their signatures, and copies the result to `dist/integrations/Finicky Actions.app`. It does not install the app or enable extensions. The full Release build passed after correcting empty-array expansion under `nounset` on the system Bash 3.2. Cleaning is necessary when changing signing identities: an incremental signed build retained an ad hoc Safari extension during QA and failed verification; a clean build succeeded. The verifier checks the embedded signatures and matching signing team, with all 16 verifier fixtures passing. Signed build 5 and all 16 native tests also pass.
+The script creates a clean universal build for Apple silicon and Intel, enables hardened runtime, verifies the embedded signatures, and writes `dist/integrations/Waystile Actions.app`. It does not install the app, enable extensions, or register Shortcuts. Local builds use ad hoc signing by default, which does not establish OS acceptance of native integrations.
 
-The default is local ad hoc signing. To use an existing development or distribution identity:
+To use an existing Apple-issued identity:
 
 ```sh
 FINICKY_SIGNING_IDENTITY='Apple Development: Your Name (TEAMID)' \
@@ -37,60 +37,24 @@ FINICKY_DEVELOPMENT_TEAM='TEAMID' \
 scripts/build-integrations.sh
 ```
 
-`FINICKY_INTEGRATIONS_OUTPUT` changes the output directory. `CONFIGURATION` defaults to `Release`.
+`FINICKY_INTEGRATIONS_OUTPUT` changes the output directory. `CONFIGURATION` defaults to `Release`. Set `FINICKY_REQUIRE_RUNTIME_SIGNING=1` to require a matching Apple signing identity and team during verification. Public Developer ID distribution also needs notarization; development signing alone is insufficient. See the release notes for the exact distributed build and its acceptance status.
 
-Set `FINICKY_REQUIRE_RUNTIME_SIGNING=1` when preparing a build for native integration acceptance. The build then requires an existing Apple-issued signing identity and team, and checks that the companion and embedded extensions share that team. It never creates certificates, changes Keychain trust, or invents signing entitlements.
-
-You can inspect an existing bundle without launching or changing it:
-
-```sh
-bash scripts/check-integration-signing.sh --require-team '/Applications/Finicky Actions.app'
-```
-
-### Signed Shortcuts runtime results
-
-During the October 24, 2026 signed QA pass, an Apple Development identity was created through Xcode without revoking either existing certificate. The tested Finicky Plus `d6ae002` artifact was re-signed without rebuilding; companion build 2 was clean-rebuilt from `c16feeb`. Both were installed with matching Apple signing identities, and the companion and all three embedded extensions verify under the same team.
-
-**Open Finicky Plus Settings** now renders the actual settings window both when the companion is running and when Shortcuts must start it. **Open URLs with Finicky Plus** sent a synthetic `example.com` URL into the picker with its tracking parameter removed; cancelling succeeded. **Set Default Browser Profile** saved Google Chrome / `Profile 2` with private mode on, then a second invocation with `Default` and private mode off restored effective Personal/nonprivate routing. Saving normalizes omitted false fields, so after verifying the effective values the original settings file was restored byte for byte. Temporary QA shortcuts were deleted and the original library count restored. Open Clipboard and Copy Clean URL have not yet been exercised as signed native actions.
-
-The earlier ad hoc build listed all five actions but failed Settings before execution with `LNConnectionErrorDomain` 1200 and an unavailable Team ID. Registration cleanup and restart did not resolve it; the clean Apple Development-signed build did. An ad hoc signature's integrity check and action metadata therefore did not establish runtime success on this Mac. Apple's [code-identity guidance](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements) explains why an ad hoc seal is not a persistent developer identity.
-
-Keep only the intended installed app registered with Launch Services and restart the companion after replacing its binary. Development builds in `dist` and DerivedData can otherwise compete under the same bundle identifier. Do not delete Shortcuts databases or add Apple's private entitlements as a workaround.
-
-The earlier built-in **URL** → **Open URLs** custom-scheme workaround failed before signing: direct `finicky-plus://settings` input and a typed URL → Open URLs sequence both stalled until cancelled, while an HTTP(S) control opened Chrome Personal. Those custom-scheme attempts did not show the native App Intent's error 1200 and have not been retested after signing, so no working custom-scheme fallback is claimed. The now-successful signed native actions are a separate result.
-
-### Share and Focus runtime results
-
-Finicky Plus still uses the tested `d6ae002` Go binary. Its existing bundle received only the two missing Services context dictionaries, then was re-signed and installed without a Go rebuild. Installed companion build 5 includes the Share display-name/icon corrections, bounded activation predicate, and rich/plain-text loader, with matching Apple Development signatures. Safari's actual page Share flow passed on build 5, opening the main picker with the correct cleaned page URL.
-
-TextEdit's actual RTF-selection Share menu now lists Open with Finicky Plus. Selecting three labelled links with two unique destinations produced exactly `rich-one`, then `rich-two` in the main picker, with tracking parameters removed and duplicates omitted. Both pickers were cancelled and no extra picker appeared.
-
-Safari's native Share menu also offered Finicky for a local HTML text selection containing three plain URLs, including one duplicate. Sharing produced exactly `text-one`, then `text-two`, with tracking removed and duplicates omitted. Both pickers were cancelled with no extra picker.
-
-The final activation predicate handles the actual macOS matching format: selected attributed content can appear as `contentText` with no `attachments` key. It also accepts supported plain-text, RTF, and web-URL representations, rejects unsupported file/image-only items, and bounds item and attachment counts. The loader preserves attributed link destinations, handles UTF-8/UTF-16 and RTF, falls back from unusable representations, and deduplicates in reading order. These are separate source corrections with regression coverage.
-
-A stale user-session `sharingd` catalogue was the remaining discovery blocker: local matching accepted the installed extension, but the session catalogue omitted it. One graceful restart of only the verified current-user sharing daemon refreshed the catalogue. The unchanged session probe then included Finicky for plain text, RTF, and URLs, and the TextEdit rich-text and Safari plain-text Share flows passed. No databases or settings were reset. The activation predicate and loader repairs address identified gaps, but were not alone sufficient to refresh that stale catalogue.
-
-The main app already provided two selected-text Services. Their missing `NSRequiredContext` dictionaries were added following [Apple's Services requirements](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/SysServices/Articles/properties.html), without introducing duplicate entries. Both appear in TextEdit and Safari. Safari → Services → Choose Browser with Finicky Plus processed the same three-URL selection into exactly two ordered, cleaned pickers with duplicates omitted; both cancelled without an extra picker. Open URLs with Finicky Plus was not separately invoked. These Services use the main router directly and are separate from the companion Share extension.
-
-The user manually enabled the signed Safari extension after an automated activation click was blocked. Only `example.com` received Allow for One Day; no all-sites or private-browsing access was granted. The toolbar action opened the picker with the current page's correct cleaned URL. Right-clicking Learn more → Open Link with Finicky Plus opened the picker for exactly `https://iana.org/help/example-domains`. Both pickers were cancelled without navigation. The extension remains enabled with the user's approval; no unsigned-extension protection was disabled.
-
-System Settings listed **Finicky Actions → Browser Profile** when adding a filter to Work Focus, and its configuration UI opened. The flow was cancelled without editing that existing Focus. Separately, an explicit protocol activation selected Work/private and persisted the previous Personal default. After restarting Finicky Plus, explicit clear restored regular Personal and removed the snapshot. The original main-app settings were restored byte for byte and the snapshot was confirmed absent after the continuation. No actual Focus was activated or changed during QA. This verifies discovery and the router's restoration protocol, **not OS delivery** when a Focus activates or deactivates.
+The public name and output bundle are **Waystile Actions**. Internal Xcode target names, executable names, extension bundle paths, and identifiers remain stable for compatibility. In particular, the internal products retain the names `Finicky Actions`, `Finicky Safari`, `Open with Finicky Plus`, and `Finicky Focus`; these are not additional apps to install. The public companion is version 0.1.0, build 6.
 
 ## Enable on your Mac
 
-1. Install and open Finicky Plus once so macOS registers its URL scheme.
-2. Move `Finicky Actions.app` to Applications and open it once. Keep the companion installed; its embedded extensions and Shortcuts metadata are registered through this bundle.
-3. In Shortcuts, search for **Finicky Actions** to add actions. Use the browser's exact profile name or Chromium directory when specifying a profile.
-4. With a properly signed build, open Safari Settings → Extensions and enable **Finicky Safari**, then grant access to the sites where you want its contextual link action. On the tested Mac, the user enabled it manually and the toolbar and clicked-link actions passed with only `example.com` Allow for One Day access.
-5. In macOS Extensions settings, enable **Open with Finicky Plus**. The exact location varies by macOS version. Enabling alone is not acceptance; an actual inbound share must also succeed. Build 5 passed Safari page sharing. TextEdit RTF selection and Safari plain-text selection also passed after the stale user-session catalogue was refreshed.
-6. In System Settings → Focus, add the **Browser Profile** app filter and enter the browser and optional profile. The separate App Intents extension lets the system deliver changes while the companion is closed.
+1. Install and open Waystile once so macOS knows its URL handler.
+2. Install and open **Waystile Actions**. The companion can open the router's settings and explains each integration.
+3. In Shortcuts, search for **Waystile** and add the action you need. Run a harmless test link before using it in an automation.
+4. Enable **Waystile Safari** in Safari Settings → Extensions. Grant access to the sites where you want to invoke its actions.
+5. Enable **Open with Waystile** in macOS extension settings to use the Share menu. The settings location varies by macOS version.
+6. For Focus behavior, add the Browser Profile filter to a Focus and choose its destination. Verify both activation and restoration before relying on the automation.
 
-Focus filter delivery and extension registration are controlled by macOS. A successful build does not confirm execution. Set Default Browser Profile now works as a signed native action, but an actual Focus automation using it remains unverified. No working built-in custom-scheme shortcut fallback is claimed.
+The router and companion have separate responsibilities. A companion action returning successfully confirms dispatch to macOS, not acknowledgement that a browser opened or a clipboard operation completed.
 
-## Protocol
+## Compatibility protocol
 
-Query values are constructed through `URLComponents`; embedded URLs are never interpolated as raw query strings. Each URL is sent separately to match the main application's single-link request parser. Opening validates the entire input list first and rejects non-HTTP(S) links before dispatching anything. Private, new-window, and background options default to false.
+The `finicky-plus://` scheme is deliberately retained. Query values use `URLComponents`, and each URL is sent separately to match the router's single-link parser. Opening validates the entire input list before dispatching and rejects non-HTTP(S) links. Private, new-window, and background options default to false.
 
 | Action | Query fields |
 | --- | --- |
@@ -102,9 +66,15 @@ Query values are constructed through `URLComponents`; embedded URLs are never in
 | Focus activation | `set-default` with `focus=active` and a destination |
 | Focus deactivation | `set-default` with `focus=clear` |
 
-The main app owns the previous-default snapshot for Focus restoration. A successful companion action confirms dispatch to macOS, not that the selected browser finished opening or clipboard processing completed. The signed Settings and Open URLs live tests additionally observed the expected settings window and picker.
+The router owns the previous-default snapshot for Focus restoration.
 
-## Verify
+## Coverage and limits
+
+Earlier Apple Development builds passed live checks for Settings, Open URLs, and Set Default Browser Profile Shortcuts actions; Safari toolbar and context-menu actions; Safari page sharing; and rich/plain-text sharing with link order, cleanup, deduplication, and cancellation. Those results do not establish acceptance of the newly branded Developer ID companion on another Mac.
+
+Open Clipboard and Copy Clean URL still need live native-action checks. Focus configuration and explicit protocol restoration have been exercised, but actual OS delivery of Focus changes remains unverified. Handoff between Macs and arbitrary browser combinations also need separate acceptance.
+
+The native tests cover URL encoding, destination parameters, web-only dispatch, opening options, bounded Share activation, rich-text link extraction, order/deduplication, fallback, and cancellation. Run them using the preserved internal scheme:
 
 ```sh
 xcodebuild \
@@ -116,6 +86,4 @@ xcodebuild \
   CODE_SIGN_IDENTITY=- test
 ```
 
-The 16 native tests cover query-value isolation, the profile-directory protocol key, web-URL validation, opening options, actual attachment-free selected-content matching, bounded activation, presentation metadata, attributed link destinations, text encodings/RTF, fallback, order/deduplication, and cancellation. Remaining runtime acceptance checks are: run Open Clipboard and Copy Clean URL from Shortcuts; separately invoke the non-prompting Open URLs Service; activate and clear an actual Focus and verify OS delivery and the restored profile; and verify cross-device Handoff. Browser launching and clipboard behavior require the main app running. A successful explicit Focus protocol test does not replace the final OS-delivery check.
-
-Implementation follows Apple's [Safari context-menu](https://developer.apple.com/documentation/safariservices/adjusting-settings-for-contextual-menu-items), [toolbar](https://developer.apple.com/documentation/safariservices/adjusting-settings-for-a-toolbar-item), and [Focus filter](https://developer.apple.com/documentation/appintents/defining-your-app-s-focus-filter) APIs. The toolbar artwork is an original vector drawing included in this directory.
+See [release verification](../../docs/VERIFICATION.md) for build-specific results. The Safari integration follows Apple's [context-menu](https://developer.apple.com/documentation/safariservices/adjusting-settings-for-contextual-menu-items) and [toolbar](https://developer.apple.com/documentation/safariservices/adjusting-settings-for-a-toolbar-item) APIs; the Focus integration uses Apple's [Focus filter API](https://developer.apple.com/documentation/appintents/defining-your-app-s-focus-filter).

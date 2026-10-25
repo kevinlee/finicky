@@ -1,8 +1,8 @@
-/* Browser integrations for the Finicky fork. All launch requests use a URL,
+/* Browser integrations for Waystile. All launch requests use a URL,
    never executable code. The native app validates the destination again. */
 const extensionAPI = typeof browser !== "undefined" ? browser : chrome;
 const menus = {
-  "finicky-route-link": {title: "Open with Finicky", contexts: ["link"]},
+  "finicky-route-link": {title: "Open with Waystile", contexts: ["link"]},
   "finicky-choose-link": {title: "Choose browser or profile…", contexts: ["link"]},
   "finicky-choose-page": {title: "Open this page in another profile…", contexts: ["page"]},
 };

@@ -14,7 +14,9 @@ else
   BUILD_TARGET_ARCH="$target_arch" ./scripts/build.sh
   source_app="apps/finicky/build/Finicky-${target_arch}.app"
 fi
-fork_app="apps/finicky/build/Finicky Plus.app"
+fork_app="apps/finicky/build/Waystile.app"
+# Build outputs are disposable; never merge stale bundle resources into a release.
+rm -rf "$fork_app"
 ditto "$source_app" "$fork_app"
 if [ -f "$fork_app/Contents/template-icon.pdf" ]; then
   mv "$fork_app/Contents/template-icon.pdf" "$fork_app/Contents/Resources/template-icon.pdf"

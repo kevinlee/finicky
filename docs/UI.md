@@ -1,6 +1,6 @@
 # Settings UI foundation
 
-The October 25, 2026 UI update gives the settings window a shared visual and interaction foundation while retaining the existing native routing and settings bridge. The product name remains Finicky Plus pending a separate naming decision.
+Waystile's settings window uses a shared visual and interaction foundation while retaining the existing native routing and settings bridge. The public product name is Waystile; legacy protocol and storage names remain stable for compatibility.
 
 ## Libraries and local assets
 
@@ -8,8 +8,9 @@ The October 25, 2026 UI update gives the settings window a shared visual and int
 - **Lucide for Svelte 1.61.0** supplies consistently drawn icons through `StudioIcon.svelte`. The adapter imports named components and preserves the existing `name` and `size` interface. The package supports tree-shaking so unused icon components can be omitted from the production output. See [Lucide for Svelte](https://lucide.dev/guide/svelte).
 - Both packages are pinned in `package.json` and the npm lockfile. Their CSS and icon components are bundled with the application. The settings UI does not fetch these libraries, fonts, or icons from a CDN at runtime.
 - Standard HTML buttons, selects, inputs, and the native HTML dialog remain the interaction primitives. This update does not introduce Bits UI, Tailwind, or a styled component framework.
+- Waystile's original route-mark icon lives in `design/waystile-icon.svg`. The native generator in `scripts/create-waystile-icons.swift` renders matching app, menu-bar, and browser-extension assets. Run `scripts/create-icons.sh` to regenerate them; the settings header and About page bundle the SVG directly.
 
-The complete upstream license texts are included in `apps/finicky/assets/UI-THIRD-PARTY-NOTICES.txt`, including Lucide's Feather-derived icon notice. `scripts/build.sh` copies the assets directory into each app bundle's `Contents` directory, and `scripts/build-fork.sh` preserves that bundle when creating Finicky Plus.
+The complete upstream license texts are included in `apps/finicky/assets/UI-THIRD-PARTY-NOTICES.txt`, including Lucide's Feather-derived icon notice. The build places this file and Finicky's original MIT license in the app bundle's `Contents/Resources` directory. `scripts/build-fork.sh` creates a fresh `Waystile.app` bundle so obsolete resources are not retained from an earlier build.
 
 ## Visual rules
 

@@ -39,6 +39,9 @@ func TestUnsafeOrUnresolvedLaunchIsRejected(t *testing.T) {
 		{Name: "Google Chrome", Profile: "finicky-profile-does-not-exist-815523"},
 		{Name: "com.kevinlee.finicky"},
 		{Name: "/Applications/Finicky Plus.app"},
+		{Name: "Waystile"},
+		{Name: "/Applications/Waystile.app"},
+		{Name: "/Applications/Waystile Preview.app"},
 		{Name: "se.johnste.finicky"},
 	} {
 		if _, err := buildOpenArgs(cfg, false); err == nil {

@@ -118,7 +118,7 @@ func main() {
 
 	currentVersion := version.GetCurrentVersion()
 	commitHash, buildDate := version.GetBuildInfo()
-	slog.Info("Starting Finicky", "version", currentVersion)
+	slog.Info("Starting Waystile", "version", currentVersion)
 	slog.Debug("Build info", "buildDate", buildDate, "commitHash", commitHash)
 
 	go func() {
@@ -130,9 +130,9 @@ func main() {
 		if err != nil {
 			slog.Debug("Failed checking if we are the default browser", "error", err)
 		} else if !is_default_browser {
-			slog.Debug("Finicky is not the default browser")
+			slog.Debug("Waystile is not the default browser")
 		} else {
-			slog.Debug("Finicky is the default browser")
+			slog.Debug("Waystile is the default browser")
 		}
 	}()
 

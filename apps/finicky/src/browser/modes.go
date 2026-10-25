@@ -99,7 +99,7 @@ func IsRouter(identifier string) bool {
 		identifier = strings.TrimSuffix(filepath.Base(identifier), ".app")
 	}
 	switch strings.ToLower(identifier) {
-	case "finicky", "finicky plus", "finicky plus preview", "se.johnste.finicky", "net.kassett.finicky", "com.kevinlee.finicky", "com.kevinlee.finicky.preview":
+	case "waystile", "waystile preview", "finicky", "finicky plus", "finicky plus preview", "se.johnste.finicky", "net.kassett.finicky", "com.kevinlee.finicky", "com.kevinlee.finicky.preview":
 		return true
 	}
 	return false

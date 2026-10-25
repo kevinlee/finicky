@@ -1,19 +1,16 @@
-
 #!/bin/bash
-
-# This script builds the browser extension for Firefox and Chrome.
-
-# firefox
-mkdir -p build/firefox
-cp *.js *.png build/firefox/
-cp manifest-firefox.json build/firefox/manifest.json
-zip -r build/firefox.zip -j build/firefox/*
-
-# chrome
-mkdir -p build/chrome
-cp *.js *.png build/chrome/
-cp manifest-chrome.json build/chrome/manifest.json
-zip -r build/chrome.zip -j build/chrome/*
-
-# clean up
-rm -rf build/firefox build/chrome
+# Create fresh archives from only the extension's public runtime files.
+set -euo pipefail
+cd "$(dirname "$0")"
+mkdir -p build
+staging="$(mktemp -d "$(pwd)/build/.waystile-extension.XXXXXX")"
+trap 'rm -rf "$staging"' EXIT
+for browser in chrome firefox; do
+  folder="$staging/$browser"
+  mkdir -p "$folder"
+  cp background.js contentScript.js icon16.png icon48.png icon128.png icon256.png "$folder/"
+  cp "manifest-$browser.json" "$folder/manifest.json"
+  (cd "$folder" && zip -q "$staging/$browser.zip" background.js contentScript.js icon16.png icon48.png icon128.png icon256.png manifest.json)
+  mv -f "$staging/$browser.zip" "build/$browser.zip"
+done
+printf 'Built fresh Waystile browser extensions in %s/build\n' "$(pwd)"

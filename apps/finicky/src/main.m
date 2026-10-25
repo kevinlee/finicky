@@ -27,7 +27,7 @@ static NSImage *CurrentMenuIcon(void) {
         if (path) icon = [NSWorkspace.sharedWorkspace iconForFile:path];
         icon.template = NO;
     } else if ([menuIconStyle isEqualToString:@"globe"] || [menuIconStyle isEqualToString:@"arrow"]) {
-        icon = [NSImage imageWithSystemSymbolName:[menuIconStyle isEqualToString:@"globe"] ? @"globe" : @"arrow.triangle.branch" accessibilityDescription:@"Finicky Plus"];
+        icon = [NSImage imageWithSystemSymbolName:[menuIconStyle isEqualToString:@"globe"] ? @"globe" : @"arrow.triangle.branch" accessibilityDescription:@"Waystile"];
         icon.template = YES;
     }
     if (!icon) {
@@ -147,7 +147,7 @@ static NSImage *CurrentMenuIcon(void) {
     // Load the template icon directly from the bundle
     self.statusItem.button.image = CurrentMenuIcon();
 
-    self.statusItem.button.toolTip = @"Finicky Plus";
+    self.statusItem.button.toolTip = @"Waystile";
     NSMenu *menu = [[NSMenu alloc] init];
     menu.delegate = self;
     [menu addItemWithTitle:@"Settings…" action:@selector(showWindowAction:) keyEquivalent:@","];

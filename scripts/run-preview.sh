@@ -16,7 +16,7 @@ case "$(uname -m)" in
 esac
 
 source_app="$(pwd)/apps/finicky/build/Finicky-${target_arch}.app"
-preview_app="$(pwd)/apps/finicky/build/Finicky Plus Preview.app"
+preview_app="$(pwd)/apps/finicky/build/Waystile Preview.app"
 preview_rules="${1:-$(pwd)/apps/finicky/build/preview-rules.json}"
 
 if [ ! -x "$source_app/Contents/MacOS/Finicky" ]; then
@@ -44,8 +44,8 @@ if [ -f "$preview_app/Contents/template-icon.pdf" ]; then
 fi
 preview_plist="$preview_app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.kevinlee.finicky.preview" "$preview_plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleName Finicky Plus Preview" "$preview_plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Finicky Plus Preview" "$preview_plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleName Waystile Preview" "$preview_plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Waystile Preview" "$preview_plist"
 /usr/libexec/PlistBuddy -c "Delete :CFBundleURLTypes" "$preview_plist" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Delete :CFBundleDocumentTypes" "$preview_plist" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Delete :NSUserActivityTypes" "$preview_plist" 2>/dev/null || true

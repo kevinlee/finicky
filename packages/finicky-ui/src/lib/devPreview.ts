@@ -98,7 +98,7 @@ if (import.meta.env.DEV && !window.webkit?.messageHandlers?.finicky) {
       { id: "preview-local", deviceId: "preview-mac-a", deviceName: "Example MacBook", createdAt: new Date(Date.now() - 60_000).toISOString() },
       { id: "preview-remote", deviceId: "preview-mac-b", deviceName: "Example iMac", createdAt: new Date().toISOString() },
     ] : [],
-    cloudPath: "iCloud Drive / Finicky Plus / Settings (preview)",
+    cloudPath: "iCloud Drive / Finicky Plus Sync (preview)",
     lastSyncedAt: previewSyncedAt || undefined,
     limitations: ["This preview uses synthetic shared settings and never contacts iCloud."],
   });
@@ -293,7 +293,7 @@ if (import.meta.env.DEV && !window.webkit?.messageHandlers?.finicky) {
           break;
         case "getIntegrations":
           send("integrations", {
-            appPath: "/Applications/Finicky Plus.app",
+            appPath: "/Applications/Waystile.app",
             bundleId: "com.kevinlee.finicky",
             scheme: "finicky-plus",
           });
@@ -390,7 +390,7 @@ if (import.meta.env.DEV && !window.webkit?.messageHandlers?.finicky) {
             ) {
               send("testUrlResult", {
                 error:
-                  "URL transformation scripts run in the native app. Open Finicky Plus to test this configuration.",
+                  "URL transformation scripts run in the native app. Open Waystile to test this configuration.",
               });
               break;
             }

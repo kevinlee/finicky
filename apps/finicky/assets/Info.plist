@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Finicky Plus</string>
+	<string>Waystile</string>
 	<key>CFBundleExecutable</key>
 	<string>Finicky</string>
 	<key>CFBundleIdentifier</key>
@@ -13,13 +13,13 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Finicky Plus</string>
+	<string>Waystile</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>4.4.0</string>
+	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>4.4.0</string>
+	<string>0.1.0</string>
 	<key>CFBundleIconFile</key>
 	<string>finicky.icns</string>
 	<key>LSUIElement</key>
@@ -82,12 +82,12 @@
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>Open URLs with Finicky Plus</string>
+				<string>Open URLs with Waystile</string>
 			</dict>
 			<key>NSMessage</key>
 			<string>openSelectedLinks</string>
 			<key>NSPortName</key>
-			<string>Finicky Plus</string>
+			<string>Waystile</string>
 			<key>NSRequiredContext</key>
 			<dict/>
 			<key>NSSendTypes</key>
@@ -100,12 +100,12 @@
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>Choose Browser with Finicky Plus</string>
+				<string>Choose Browser with Waystile</string>
 			</dict>
 			<key>NSMessage</key>
 			<string>chooseForSelectedLinks</string>
 			<key>NSPortName</key>
-			<string>Finicky Plus</string>
+			<string>Waystile</string>
 			<key>NSRequiredContext</key>
 			<dict/>
 			<key>NSSendTypes</key>
