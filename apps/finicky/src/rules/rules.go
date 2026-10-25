@@ -155,6 +155,14 @@ func Save(rf RulesFile) error {
 
 // SaveToPath writes the rules file to the given path, creating the directory if needed.
 func SaveToPath(rf RulesFile, path string) error {
+	mu := pathWriteLock(path)
+	mu.Lock()
+	defer mu.Unlock()
+	return saveToPath(rf, path)
+}
+
+// saveToPath requires the caller to hold pathWriteLock(path).
+func saveToPath(rf RulesFile, path string) error {
 	if err := Validate(rf); err != nil {
 		return err
 	}

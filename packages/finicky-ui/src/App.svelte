@@ -5,6 +5,8 @@
   import About from "./pages/About.svelte";
   import History from "./pages/History.svelte";
   import Learning from "./pages/Learning.svelte";
+  import Sync from "./pages/Sync.svelte";
+  import { beginSyncRequest, emptySyncView, receiveSyncResult, receiveSyncSnapshot, syncMutationBlocked } from "./lib/syncModel";
   import { normalizeLearningSnapshot, reconcileLearningRules, withLearningEnabled } from "./lib/learningModel";
   import Integrations from "./pages/Integrations.svelte";
   import FeaturePreferences from "./components/FeaturePreferences.svelte";
@@ -47,6 +49,7 @@
     | "preferences"
     | "history"
     | "learning"
+    | "sync"
     | "integrations"
     | "diagnostics"
     | "about";
@@ -57,6 +60,7 @@
     { id: "preferences", icon: "preferences", label: "Preferences" },
     { id: "history", icon: "history", label: "History" },
     { id: "learning", icon: "learning", label: "Learning" },
+    { id: "sync", icon: "sync", label: "Sync" },
     { id: "integrations", icon: "code", label: "Integrations" },
   ];
   const knownApps = [
@@ -72,6 +76,7 @@
     preferences: "Make Finicky Plus feel at home on your Mac.",
     history: "Find a link’s path, or give it a fresh start.",
     learning: "A little more understanding, one confirmed choice at a time.",
+    sync: "Familiar settings, wherever you work.",
     integrations: "Your browser routing, connected to your workflow.",
     diagnostics: "A closer look at what’s happening.",
     about: "A little utility with a sense of direction.",
@@ -83,6 +88,7 @@
     preferences: "Preferences",
     history: "History",
     learning: "Learning",
+    sync: "Sync",
     integrations: "Integrations",
     diagnostics: "Diagnostics",
     about: "About Finicky Plus",
@@ -130,6 +136,8 @@
   let learningBusy = false;
   let learningError = "";
   let learningTimer: ReturnType<typeof setTimeout> | undefined;
+  let syncView = emptySyncView();
+  let syncTimer: ReturnType<typeof setTimeout> | undefined;
   let integrations: IntegrationInfo | null = null;
   let exportedJSON = "";
   let importing = false;
@@ -160,6 +168,8 @@
   const isPreview = Boolean(window.finickyPreview);
   $: profiles = draft.profiles ?? [];
   $: dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
+  $: syncBusy = Boolean(syncView.pending);
+  $: syncBlocked = syncMutationBlocked({ loaded, dirty, saving, importing, externalChange, otherBusy: learningBusy });
   $: numErrors = logs.filter(
     (log) => log.level?.toLowerCase() === "error",
   ).length;
@@ -252,7 +262,7 @@
     };
   }
   function mutate(fn: (model: RulesFile) => void) {
-    if (saving || importing) return;
+    if (saving || importing || syncView.pending) return;
     const next = clone(draft);
     fn(next);
     draft = next;
@@ -270,13 +280,21 @@
     if (incoming) incoming = withLearningEnabled(incoming, enabled);
   }
   function learningRequest(message: { type: string; [key: string]: unknown }) {
-    if (learningBusy || saving || importing) return;
+    if (learningBusy || saving || importing || syncView.pending) return;
     learningBusy = true;
     send(message);
     learningTimer = setTimeout(() => {
       learningBusy = false;
       learningError = "Finicky Plus has not confirmed this learning request. Refresh to check its current state before trying again.";
     }, 12000);
+  }
+  function syncRequest(message: { type: string; [key: string]: unknown }) {
+    if (syncView.pending || (message.type !== "getSync" && syncBlocked)) return;
+    syncView = beginSyncRequest(syncView, message.type);
+    syncTimer = setTimeout(() => {
+      syncView = { ...syncView, pending: "", error: "Finicky Plus has not confirmed this sync request. Refresh to check its current state before trying again." };
+    }, 20000);
+    send(message);
   }
   function receive(raw: any) {
     let message: any;
@@ -313,6 +331,14 @@
       case "history":
         history = Array.isArray(message.message) ? message.message : [];
         historyLoaded = true;
+        break;
+      case "sync":
+        syncView = receiveSyncSnapshot(syncView, message.message);
+        if (!syncView.pending) clearTimeout(syncTimer);
+        break;
+      case "syncResult":
+        syncView = receiveSyncResult(syncView, message.message);
+        if (!syncView.pending) clearTimeout(syncTimer);
         break;
       case "learning": {
         const snapshot = normalizeLearningSnapshot(message.message);
@@ -489,9 +515,10 @@
     clearTimeout(testTimer);
     clearTimeout(importTimer);
     clearTimeout(learningTimer);
+    clearTimeout(syncTimer);
   });
   function apply() {
-    if (!dirty || saving || importing || learningBusy || externalChange || validationError)
+    if (!dirty || saving || importing || learningBusy || syncView.pending || externalChange || validationError)
       return;
     saving = true;
     saveError = "";
@@ -796,7 +823,7 @@
     send({ type: "grantBrowserAccess" });
   }
   function importSettings(json: string) {
-    if (dirty || saving || importing) return;
+    if (dirty || saving || importing || syncView.pending) return;
     importing = true;
     send({ type: "importSettings", json });
     importTimer = setTimeout(() => {
@@ -882,9 +909,9 @@
         >
       </div>
       <div class="local-status">
-        <span></span>{isPreview ? "Interactive preview" : "Only on your Mac"}
+        <span></span>{isPreview ? "Interactive preview" : "Routing on your Mac"}
       </div>
-      <p>Your profiles. Your rules.<br />No cloud account needed.</p>
+      <p>Your profiles. Your rules.<br />iCloud sync is optional.</p>
       {#if version}<span class="version-label">{version}</span>{/if}
     </div>
   </aside>
@@ -1416,12 +1443,25 @@
           onCorrect={(requestId, destinationId) => learningRequest({ type: "correctLearning", requestId, destinationId })}
           onDelete={(requestId) => learningRequest({ type: "deleteLearning", requestId })}
         />
+      {:else if page === "sync"}
+        <Sync
+          snapshot={syncView.snapshot}
+          busy={syncBusy}
+          blocked={syncBlocked}
+          error={syncView.error}
+          jsConfig={Boolean(config.isJSConfig)}
+          onRefresh={() => syncRequest({ type: "getSync" })}
+          onEnabled={(enabled) => syncRequest({ type: "enableSync", enabled })}
+          onSync={() => syncRequest({ type: "syncNow" })}
+          onSaveBindings={(bindings) => syncRequest({ type: "saveSyncBindings", bindings })}
+          onResolve={(choice, revision) => syncRequest({ type: "resolveSync", choice, ...(revision ? { revision } : {}) })}
+        />
       {:else if page === "integrations"}
         <Integrations
           info={integrations}
           {exportedJSON}
           {importing}
-          dirty={dirty || saving}
+          dirty={dirty || saving || syncBusy}
           onLoad={() => send({ type: "getIntegrations" })}
           onExport={() => send({ type: "exportSettings" })}
           onImport={importSettings}
@@ -1476,6 +1516,7 @@
             !dirty ||
             saving ||
             learningBusy ||
+            syncBusy ||
             externalChange ||
             Boolean(validationError)}
           >{#if saving}<span class="spinner"></span>{/if}Apply changes</button

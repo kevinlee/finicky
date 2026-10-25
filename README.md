@@ -6,6 +6,8 @@ The fork adds saved Work/Personal/Academic-style destinations, website and sourc
 
 The Learning panel offers an opt-in local experiment: it learns from explicit profile choices and checks predictions in the background. It stores sanitized domains and source apps, excludes private and unknown sources, and provides corrections and deletion controls. Predictions do not change routing. See the [learning contract and evaluation limits](docs/LEARNING.md).
 
+The Sync panel shares visual routing settings through iCloud Drive. Each Mac maps shared profile labels to its own browser destinations; learning, history and browser data remain local. Concurrent changes require an explicit version choice. See [second-Mac setup](docs/SECOND_MAC.md) and the [sync contract](docs/SYNC.md).
+
 ## Build this fork
 
 Requires macOS 13+, Xcode command-line tools, Go, Node.js, and npm. The native companion additionally needs full Xcode and XcodeGen.
@@ -23,6 +25,8 @@ Outputs:
 - `apps/browser-addon/build/chrome.zip` and `firefox.zip` — browser extensions.
 
 Build scripts do not install or replace applications. Local builds use ad hoc signatures, not notarized distribution. Enable native integrations using the [companion setup guide](apps/integrations/README.md); the Chromium extension can be loaded unpacked from its extracted archive. Firefox distribution requires Mozilla signing; temporary developer loading is available for local testing.
+
+Use `BUILD_UNIVERSAL=1 ./scripts/build-fork.sh` to build the router for both Apple silicon and Intel Macs.
 
 For a safe visual preview that simulates browser launches and uses separate settings:
 

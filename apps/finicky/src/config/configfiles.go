@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"finicky/util"
 	"fmt"
 	"io"
@@ -15,6 +16,8 @@ import (
 	"github.com/fsnotify/fsnotify"
 	babel "github.com/jvatic/goja-babel"
 )
+
+var errNoDefaultConfig = errors.New("no default JavaScript or TypeScript config file found")
 
 // ConfigFileWatcher handles watching configuration files for changes
 type ConfigFileWatcher struct {
@@ -60,16 +63,25 @@ func (cfw *ConfigFileWatcher) TearDown() {
 
 // GetConfigPaths returns a list of potential configuration file paths
 func (cfw *ConfigFileWatcher) GetConfigPaths() []string {
-	var configPaths []string
+	configPaths, err := cfw.configPaths()
+	if err != nil {
+		slog.Error("Failed to get config paths", "error", err)
+	}
+	return configPaths
+}
 
+func (cfw *ConfigFileWatcher) configPaths() ([]string, error) {
 	homeDir, err := util.UserHomeDir()
 	if err != nil {
-		slog.Error("Failed to get user home directory", "error", err)
-		return configPaths
+		return nil, err
 	}
+	return configPathsForHome(homeDir, cfw.customConfigPath), nil
+}
 
-	if cfw.customConfigPath != "" {
-		configPaths = append(configPaths, cfw.customConfigPath)
+func configPathsForHome(homeDir, customConfigPath string) []string {
+	var configPaths []string
+	if customConfigPath != "" {
+		configPaths = append(configPaths, customConfigPath)
 	} else {
 		configPaths = append(configPaths,
 			"~/.finicky.js",
@@ -91,38 +103,78 @@ func (cfw *ConfigFileWatcher) GetConfigPaths() []string {
 
 // GetConfigPath returns the path to an existing configuration file
 func (cfw *ConfigFileWatcher) GetConfigPath(log bool) (string, error) {
-	configPaths := cfw.GetConfigPaths()
+	configPaths, err := cfw.configPaths()
+	if err != nil {
+		return "", err
+	}
+	return cfw.getConfigPath(configPaths, log)
+}
 
+func (cfw *ConfigFileWatcher) getConfigPath(configPaths []string, log bool) (string, error) {
 	for _, path := range configPaths {
-		if _, err := os.Stat(path); err == nil {
-			// Resolve symlinks to get the actual file path
-			resolvedPath, err := resolveSymlink(path)
-			if err != nil {
-				slog.Warn("Failed to resolve symlink, using original path", "original", path, "error", err)
-				resolvedPath = path
+		info, err := os.Stat(path)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return "", fmt.Errorf("cannot inspect config file %s: %w", path, err)
 			}
-
-			if log {
-				if resolvedPath != path {
-					slog.Info("Using config file", "path", resolvedPath)
-				} else {
-					slog.Info("Using config file", "path", path)
+			// A dangling config symlink is an existing, broken configuration,
+			// not permission to silently fall back to visual settings.
+			if _, linkErr := os.Lstat(path); !errors.Is(linkErr, os.ErrNotExist) {
+				if linkErr != nil {
+					return "", fmt.Errorf("cannot inspect config file %s: %w", path, linkErr)
 				}
+				return "", fmt.Errorf("config file %s is unavailable: %w", path, err)
 			}
-			return resolvedPath, nil
+			continue
 		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("config file %s is not a regular file", path)
+		}
+		// Resolve symlinks to get the actual file path
+		resolvedPath, err := resolveSymlink(path)
+		if err != nil {
+			return "", err
+		}
+
+		if log {
+			if resolvedPath != path {
+				slog.Info("Using config file", "path", resolvedPath)
+			} else {
+				slog.Info("Using config file", "path", path)
+			}
+		}
+		return resolvedPath, nil
 	}
 	if cfw.customConfigPath != "" {
 		return "", fmt.Errorf("no config file found at %s", cfw.customConfigPath)
 	}
-	return "", fmt.Errorf("no config file found in any of these locations: %s", strings.Join(configPaths, ", "))
+	return "", fmt.Errorf("%w in any of these locations: %s", errNoDefaultConfig, strings.Join(configPaths, ", "))
 }
 
 func (cfw *ConfigFileWatcher) BundleConfig() (string, string, error) {
-	configPath, err := cfw.GetConfigPath(true)
+	configPaths, err := cfw.configPaths()
+	if err != nil {
+		return "", "", err
+	}
+	return cfw.bundleConfig(configPaths)
+}
+
+func (cfw *ConfigFileWatcher) bundleConfig(configPaths []string) (string, string, error) {
+	configPath, err := cfw.getConfigPath(configPaths, true)
+	if cfw.customConfigPath == "" && errors.Is(err, errNoDefaultConfig) {
+		return "", "", nil
+	}
 
 	if configPath == "" || err != nil {
 		return "", "", err
+	}
+	// A previously cached bundle must not hide a newly unreadable config.
+	file, err := os.Open(configPath)
+	if err != nil {
+		return "", configPath, fmt.Errorf("error reading config file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return "", configPath, err
 	}
 
 	// Check if we can use cached bundle
@@ -166,7 +218,7 @@ func (cfw *ConfigFileWatcher) BundleConfig() (string, string, error) {
 	}
 
 	// Update cache
-	originalConfigPath, err := cfw.GetConfigPath(false)
+	originalConfigPath, err := cfw.getConfigPath(configPaths, false)
 	if err == nil {
 		cfw.cache.UpdateCache(originalConfigPath, bundlePath)
 	}

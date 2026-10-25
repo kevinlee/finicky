@@ -1,6 +1,7 @@
 import { featureDefaults } from "./featuresModel";
 import { normalizeRulesFile } from "./rulesModel";
-import type { HistoryEntry, LearningObservation, LearningSnapshot } from "../types";
+import { syncBindingError } from "./syncModel";
+import type { HistoryEntry, LearningObservation, LearningSnapshot, SyncBinding, SyncSnapshot, SyncStatus } from "../types";
 // A browser-only development bridge. Native builds never run this branch.
 // All data is illustrative; saving here changes localStorage, not Finicky.
 if (import.meta.env.DEV && !window.webkit?.messageHandlers?.finicky) {
@@ -72,6 +73,35 @@ if (import.meta.env.DEV && !window.webkit?.messageHandlers?.finicky) {
   } catch {
     /* First launch. */
   }
+  // Optional local preview scenarios exercise the UI without accessing iCloud.
+  const syncScenario = new URLSearchParams(window.location.search).get("syncPreview");
+  let previewSyncEnabled = Boolean(syncScenario);
+  let previewSyncState: SyncStatus = syncScenario === "conflict" ? "conflict"
+    : syncScenario === "offline" ? "offline" : syncScenario === "pending" ? "pending"
+      : syncScenario ? "awaitingMapping" : "disabled";
+  let previewBindings: Record<string, SyncBinding> = {};
+  let previewSyncedAt = "";
+  const sharedProfiles = defaults.profiles.map((profile) => ({ id: profile.id, name: profile.name, color: profile.color }));
+  const syncSnapshot = (): SyncSnapshot => ({
+    enabled: previewSyncEnabled,
+    state: previewSyncEnabled ? previewSyncState : "disabled",
+    message: previewSyncState === "conflict" ? "The example shared settings changed on another Mac."
+      : previewSyncState === "offline" ? "This preview simulates iCloud being unavailable."
+        : previewSyncState === "awaitingMapping" ? "Choose where shared profiles open on this Mac."
+          : "Development preview. No iCloud files are read or written.",
+    profiles: sharedProfiles.map((profile) => ({ ...profile, mapped: Boolean(previewBindings[profile.id]) })),
+    bindings: structuredClone(previewBindings),
+    localProfiles: structuredClone(rules.profiles || []),
+    missingProfileIds: sharedProfiles.filter((profile) => !previewBindings[profile.id]).map((profile) => profile.id),
+    heads: previewSyncState === "conflict" ? ["preview-local", "preview-remote"] : [],
+    headDetails: previewSyncState === "conflict" ? [
+      { id: "preview-local", deviceId: "preview-mac-a", deviceName: "Example MacBook", createdAt: new Date(Date.now() - 60_000).toISOString() },
+      { id: "preview-remote", deviceId: "preview-mac-b", deviceName: "Example iMac", createdAt: new Date().toISOString() },
+    ] : [],
+    cloudPath: "iCloud Drive / Finicky Plus / Settings (preview)",
+    lastSyncedAt: previewSyncedAt || undefined,
+    limitations: ["This preview uses synthetic shared settings and never contacts iCloud."],
+  });
   let history: HistoryEntry[] = [
     {
       id: "preview-1",
@@ -160,6 +190,46 @@ if (import.meta.env.DEV && !window.webkit?.messageHandlers?.finicky) {
     const msg = JSON.parse(raw);
     queueMicrotask(() => {
       switch (msg.type) {
+        case "getSync":
+          send("sync", syncSnapshot());
+          break;
+        case "enableSync":
+          previewSyncEnabled = msg.enabled === true;
+          previewSyncState = previewSyncEnabled
+            ? sharedProfiles.some((profile) => !previewBindings[profile.id]) ? "awaitingMapping" : "synced"
+            : "disabled";
+          send("syncResult", { success: true, operation: msg.type });
+          send("sync", syncSnapshot());
+          break;
+        case "saveSyncBindings":
+          if (sharedProfiles.some((profile) => syncBindingError(msg.bindings?.[profile.id]))) {
+            send("syncResult", { success: false, operation: msg.type, error: "Choose a valid destination for every shared profile." });
+            break;
+          }
+          previewBindings = structuredClone(msg.bindings);
+          if (previewSyncState !== "conflict") previewSyncState = previewSyncEnabled ? "synced" : "disabled";
+          send("sync", syncSnapshot());
+          send("syncResult", { success: true, operation: msg.type });
+          break;
+        case "syncNow":
+          if (previewSyncState === "offline") {
+            send("syncResult", { success: false, operation: msg.type, error: "iCloud is unavailable in this preview scenario. Your local settings are unchanged." });
+            break;
+          }
+          previewSyncState = sharedProfiles.some((profile) => !previewBindings[profile.id]) ? "awaitingMapping" : "synced";
+          previewSyncedAt = new Date().toISOString();
+          send("syncResult", { success: true, operation: msg.type });
+          send("sync", syncSnapshot());
+          break;
+        case "resolveSync":
+          if (previewSyncState !== "conflict" || !["local", "remote"].includes(msg.choice) || (msg.choice === "remote" && !syncSnapshot().heads.includes(msg.revision))) {
+            send("syncResult", { success: false, operation: msg.type, error: "No matching conflict is waiting for this choice." });
+            break;
+          }
+          previewSyncState = sharedProfiles.some((profile) => !previewBindings[profile.id]) ? "awaitingMapping" : "synced";
+          send("syncResult", { success: true, operation: msg.type });
+          send("sync", syncSnapshot());
+          break;
         case "getRules":
           send("rules", rulesMessage());
           break;

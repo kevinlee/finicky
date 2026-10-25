@@ -94,6 +94,41 @@ export interface LearningSnapshot {
   limitations?: string[];
 }
 
+export interface SyncBinding {
+  browser: string;
+  profile?: string;
+  profileDirectory?: string;
+}
+
+export interface SyncProfile {
+  id: string;
+  name: string;
+  color?: string;
+  private?: boolean;
+  hidden?: boolean;
+  mapped?: boolean;
+}
+
+export type SyncStatus = "disabled" | "synced" | "pending" | "offline" | "conflict" | "awaitingMapping" | "localChanges" | "error";
+
+export interface SyncSnapshot {
+  enabled: boolean;
+  state: SyncStatus;
+  message?: string;
+  deviceId?: string;
+  appliedRevision?: string;
+  heads: string[];
+  headDetails?: { id: string; deviceId?: string; deviceName?: string; createdAt?: string }[];
+  profiles: SyncProfile[];
+  bindings: Record<string, SyncBinding>;
+  localProfiles: SavedProfile[];
+  missingProfileIds: string[];
+  cloudPath?: string;
+  blockedReason?: string;
+  lastSyncedAt?: string;
+  limitations?: string[];
+}
+
 export interface IntegrationInfo {
   appPath: string;
   bundleId: string;

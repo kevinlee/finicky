@@ -179,63 +179,66 @@ func main() {
 	// Set up rules save handler.
 	// When there is no JS config, rebuild the VM from the updated rules.
 	// When there is a JS config, JSON rules are loaded fresh in evaluateURL — nothing to do.
-	window.SaveRulesHandler = func(rf rules.RulesFile) error {
-		if err := reconcileLearning(rf); err != nil {
-			// Rules have already been saved. A corrupt optional learning store
-			// must not prevent the new routing settings from taking effect.
-			slog.Warn("Could not reconcile local learning data", "error", err)
-		}
-		vmMu.Lock()
-		defer vmMu.Unlock()
-		configPath := ""
-		if configInfo != nil {
-			configPath = configInfo.ConfigPath
-		}
-		// Imports can remove overrides. Publish the resulting effective values,
-		// including when a runtime side effect fails after the VM was updated.
-		defer func() { publishConfiguration(vm, configPath) }()
-		slog.Debug("Rules updated", "count", len(rf.Rules))
-		resolver.SetCachedRules(rf)
-		refreshMenuIcon(rf)
-		if vm == nil || !vm.IsJSConfig() {
-			if rf.DefaultBrowser == "" && len(rf.Rules) == 0 && rf.Options == nil && (rf.Features == nil || rf.Features.TransformScript == "") {
-				vm = nil
-				configPath = ""
-				shouldKeepRunning.Store(vm.GetAllConfigOptions().KeepRunning)
-				return logger.SetupFile(false)
+	window.SaveRulesHandler = func(_ rules.RulesFile) error {
+		return applyLatestSavedRules(func(rf rules.RulesFile) error {
+			if err := reconcileLearning(rf); err != nil {
+				// Rules have already been saved. A corrupt optional learning store
+				// must not prevent the new routing settings from taking effect.
+				slog.Warn("Could not reconcile local learning data", "error", err)
 			}
-			script, err := rules.ToJSConfigScript(rf, namespace)
-			if err != nil {
-				slog.Error("Failed to generate config from rules", "error", err)
-				return err
+			vmMu.Lock()
+			defer vmMu.Unlock()
+			configPath := ""
+			if configInfo != nil {
+				configPath = configInfo.ConfigPath
 			}
-			newVM, err := config.NewFromScript(finickyConfigAPIJS, namespace, script)
-			if err != nil {
-				slog.Error("Failed to rebuild VM from rules", "error", err)
-				return err
-			}
-			vm = newVM
-			configPath, _ = rules.GetPath()
-			if vm != nil {
+			// Imports can remove overrides. Publish the resulting effective values,
+			// including when a runtime side effect fails after the VM was updated.
+			defer func() { publishConfiguration(vm, configPath) }()
+			slog.Debug("Rules updated", "count", len(rf.Rules))
+			resolver.SetCachedRules(rf)
+			refreshMenuIcon(rf)
+			if vm == nil || !vm.IsJSConfig() {
+				if rf.DefaultBrowser == "" && len(rf.Rules) == 0 && rf.Options == nil && (rf.Features == nil || rf.Features.TransformScript == "") {
+					vm = nil
+					configPath = ""
+					shouldKeepRunning.Store(vm.GetAllConfigOptions().KeepRunning)
+					return logger.SetupFile(false)
+				}
+				script, err := rules.ToJSConfigScript(rf, namespace)
+				if err != nil {
+					slog.Error("Failed to generate config from rules", "error", err)
+					return err
+				}
+				newVM, err := config.NewFromScript(finickyConfigAPIJS, namespace, script)
+				if err != nil {
+					slog.Error("Failed to rebuild VM from rules", "error", err)
+					return err
+				}
+				vm = newVM
+				configPath, _ = rules.GetPath()
+				if vm != nil {
+					opts := vm.GetAllConfigOptions()
+					shouldKeepRunning.Store(opts.KeepRunning)
+					if logErr := logger.SetupFile(opts.LogRequests && !dryRun); logErr != nil {
+						return logErr
+					}
+					go checkForUpdates()
+				}
+			} else {
+				if err := applyVisualOptions(vm, rf); err != nil {
+					return err
+				}
 				opts := vm.GetAllConfigOptions()
 				shouldKeepRunning.Store(opts.KeepRunning)
-				if logErr := logger.SetupFile(opts.LogRequests && !dryRun); logErr != nil {
-					return logErr
+				if err := logger.SetupFile(opts.LogRequests && !dryRun); err != nil {
+					return err
 				}
-				go checkForUpdates()
 			}
-		} else {
-			if err := applyVisualOptions(vm, rf); err != nil {
-				return err
-			}
-			opts := vm.GetAllConfigOptions()
-			shouldKeepRunning.Store(opts.KeepRunning)
-			if err := logger.SetupFile(opts.LogRequests && !dryRun); err != nil {
-				return err
-			}
-		}
-		return nil
+			return nil
+		})
 	}
+	setupSettingsSync()
 
 	const oneDay = 24 * time.Hour
 
@@ -271,9 +274,11 @@ func main() {
 				startTime := time.Now()
 				var setupErr error
 				slog.Debug("Config has changed")
+				settingsApplyMu.Lock()
 				vmMu.Lock()
 				vm, setupErr = setupVM(cfw, namespace)
 				vmMu.Unlock()
+				settingsApplyMu.Unlock()
 				if setupErr != nil {
 					handleRuntimeError(setupErr)
 				} else {

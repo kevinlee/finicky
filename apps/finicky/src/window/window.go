@@ -285,7 +285,14 @@ func handleSaveRules(msg map[string]interface{}) {
 			return
 		}
 	}
-	SendMessageToWebView("rules", rulesResponse{RulesFile: rf, Path: util.ShortenPath(path)})
+	// A concurrent sync or local save may have finished before this callback.
+	// Publish actual saved settings, matching the runtime's latest-state apply.
+	current, err := rules.Load()
+	if err != nil {
+		SendMessageToWebView("saveRulesError", map[string]interface{}{"error": "Settings were saved but could not be refreshed: " + err.Error()})
+		return
+	}
+	SendMessageToWebView("rules", rulesResponse{RulesFile: current, Path: util.ShortenPath(path)})
 	SendMessageToWebView("saveRulesSuccess", map[string]interface{}{})
 }
 

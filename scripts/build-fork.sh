@@ -7,8 +7,13 @@ case "$(uname -m)" in
   x86_64) target_arch=amd64 ;;
   *) echo "Unsupported architecture" >&2; exit 1 ;;
 esac
-BUILD_TARGET_ARCH="$target_arch" ./scripts/build.sh
-source_app="apps/finicky/build/Finicky-${target_arch}.app"
+if [ "${BUILD_UNIVERSAL:-0}" = "1" ]; then
+  BUILD_UNIVERSAL=1 ./scripts/build.sh
+  source_app="apps/finicky/build/Finicky.app"
+else
+  BUILD_TARGET_ARCH="$target_arch" ./scripts/build.sh
+  source_app="apps/finicky/build/Finicky-${target_arch}.app"
+fi
 fork_app="apps/finicky/build/Finicky Plus.app"
 ditto "$source_app" "$fork_app"
 if [ -f "$fork_app/Contents/template-icon.pdf" ]; then

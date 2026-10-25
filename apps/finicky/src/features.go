@@ -339,8 +339,12 @@ func saveAndApply(rf rules.RulesFile) error {
 			return &savedRulesApplyError{err}
 		}
 	}
-	window.SendMessageToWebView("rules", rf)
-	refreshMenuIcon(rf)
+	current, err := rules.Load()
+	if err != nil {
+		return &savedRulesApplyError{err}
+	}
+	window.SendMessageToWebView("rules", current)
+	refreshMenuIcon(current)
 	return nil
 }
 
@@ -445,6 +449,9 @@ func applyDefaultRequest(rf *rules.RulesFile, r urlrequest.Request) error {
 
 func setupFeatureBridge() {
 	window.FeatureMessageHandler = func(msg map[string]interface{}) bool {
+		if handleSyncMessage(msg) {
+			return true
+		}
 		if handleLearningMessage(msg) {
 			return true
 		}
