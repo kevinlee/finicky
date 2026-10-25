@@ -53,15 +53,25 @@
     | "integrations"
     | "diagnostics"
     | "about";
-  const navigation: { id: Page; icon: string; label: string }[] = [
-    { id: "routing", icon: "route", label: "Routing" },
-    { id: "profiles", icon: "profiles", label: "Profiles" },
-    { id: "test", icon: "test", label: "Test a link" },
-    { id: "preferences", icon: "preferences", label: "Preferences" },
-    { id: "history", icon: "history", label: "History" },
-    { id: "learning", icon: "learning", label: "Learning" },
-    { id: "sync", icon: "sync", label: "Sync" },
-    { id: "integrations", icon: "code", label: "Integrations" },
+  const navigation: { label: string; items: { id: Page; icon: string; label: string }[] }[] = [
+    {
+      label: "Routing",
+      items: [
+        { id: "routing", icon: "route", label: "Routing" },
+        { id: "profiles", icon: "profiles", label: "Profiles" },
+        { id: "test", icon: "test", label: "Test a link" },
+        { id: "history", icon: "history", label: "History" },
+      ],
+    },
+    {
+      label: "Settings",
+      items: [
+        { id: "preferences", icon: "preferences", label: "Preferences" },
+        { id: "learning", icon: "learning", label: "Learning" },
+        { id: "sync", icon: "sync", label: "Sync" },
+        { id: "integrations", icon: "code", label: "Integrations" },
+      ],
+    },
   ];
   const knownApps = [
     { id: "com.tinyspeck.slackmacgap", name: "Slack", color: "#8d5e8c" },
@@ -70,19 +80,19 @@
     { id: "com.todesktop.230313mzl4w4u92", name: "Cursor", color: "#636b7a" },
   ];
   const subtitles: Record<Page, string> = {
-    routing: "A home for every link.",
-    profiles: "Keep your different worlds a little more separate.",
-    test: "See exactly where a link will land.",
-    preferences: "Make Finicky Plus feel at home on your Mac.",
-    history: "Find a link’s path, or give it a fresh start.",
-    learning: "A little more understanding, one confirmed choice at a time.",
-    sync: "Familiar settings, wherever you work.",
-    integrations: "Your browser routing, connected to your workflow.",
-    diagnostics: "A closer look at what’s happening.",
-    about: "A little utility with a sense of direction.",
+    routing: "Choose where links open, based on their website or source app.",
+    profiles: "Manage the browser destinations you use for work, study, and everything else.",
+    test: "Preview a link’s destination using your applied rules.",
+    preferences: "Customize the picker, link handling, and app behavior.",
+    history: "Review recently opened links and their destinations.",
+    learning: "Review predictions based on choices you confirm.",
+    sync: "Share routing settings across your Macs through iCloud Drive.",
+    integrations: "Connect browsers, Shortcuts, and other apps.",
+    diagnostics: "Inspect application activity and troubleshoot routing.",
+    about: "Browser profile routing for macOS.",
   };
   const pageTitles: Record<Page, string> = {
-    routing: "Routing",
+    routing: "Routing rules",
     profiles: "Profiles",
     test: "Test a link",
     preferences: "Preferences",
@@ -114,7 +124,7 @@
     {
       key: "logRequests",
       name: "Log link requests",
-      hint: "Write routed URLs to the diagnostic log on disk. Changes apply immediately.",
+      hint: "Write routed URLs to the diagnostic log on disk. Takes effect when you apply changes.",
       fallback: false,
     },
     {
@@ -125,6 +135,7 @@
     },
   ];
   let page: Page = "routing";
+  let pageHeading: HTMLHeadingElement;
   let version = "";
   let config: ConfigInfo = { configPath: "" };
   let updateInfo: UpdateInfo | null = null;
@@ -137,6 +148,7 @@
   let learningError = "";
   let learningTimer: ReturnType<typeof setTimeout> | undefined;
   let syncView = emptySyncView();
+  let syncMappingDirty = false;
   let syncTimer: ReturnType<typeof setTimeout> | undefined;
   let integrations: IntegrationInfo | null = null;
   let exportedJSON = "";
@@ -151,6 +163,9 @@
     profileDirectory: string;
   }[] = [];
   let draft: RulesFile = { defaultBrowser: "", rules: [] };
+  const ruleIdentities = new WeakMap<Rule, number>();
+  let nextRuleIdentity = 0;
+  let ruleMoveAnnouncement = "";
   let baseline: RulesFile = clone(draft);
   let incoming: RulesFile | null = null;
   let submitted: RulesFile | null = null;
@@ -202,9 +217,43 @@
     )
       ? "Every enabled rule needs a source or website pattern, and a browser."
       : "");
-  function navigate(next: Page) {
+  $: draftPage = ["routing", "profiles", "preferences"].includes(page);
+  $: showChangesFooter = draftPage || dirty || saving || Boolean(saveError || validationError) || externalChange;
+  $: showGlobalStatus = showChangesFooter || !loaded;
+  $: footerTitle = saving
+    ? "Applying changes…"
+    : saveError
+      ? "Changes need your attention"
+      : externalChange
+        ? "Settings changed outside this window"
+        : validationError
+          ? "Check your settings"
+          : dirty
+            ? "Unapplied changes"
+            : !loaded
+              ? "Loading settings…"
+              : savedOnce && isPreview
+                ? "Saved in this preview"
+                : "All changes saved";
+  $: footerDetail = saveError || validationError || (externalChange
+    ? "Reload the saved settings before applying more changes."
+    : saving
+      ? "Waiting for the app to confirm your settings."
+      : dirty
+        ? "Apply your routing, profile, and preference changes together."
+        : isPreview
+          ? "Preview changes stay in this browser."
+          : "Edits on this page are saved when you apply them.");
+  async function navigate(next: Page) {
+    if (page === next) return;
+    if (page === "sync" && syncMappingDirty) {
+      toast.show("Save or discard your profile mappings before leaving Sync.", "warning");
+      return;
+    }
     page = next;
+    await tick();
     window.scrollTo({ top: 0, behavior: "instant" });
+    pageHeading?.focus({ preventScroll: true });
   }
   function clone<T>(value: T): T {
     return JSON.parse(JSON.stringify(value));
@@ -252,6 +301,14 @@
         : rule.match?.[0] || "Untitled rule")
     );
   }
+  function ruleKey(rule: Rule): number {
+    let identity = ruleIdentities.get(rule);
+    if (identity === undefined) {
+      identity = ++nextRuleIdentity;
+      ruleIdentities.set(rule, identity);
+    }
+    return identity;
+  }
   function cleanTarget(target: Target): Target {
     return {
       browser: target.browser,
@@ -261,13 +318,16 @@
         : {}),
     };
   }
-  function mutate(fn: (model: RulesFile) => void) {
-    if (saving || importing || syncView.pending) return;
+  function mutate(fn: (model: RulesFile) => void): boolean {
+    if (saving || importing || syncView.pending) return false;
     const next = clone(draft);
+    // Keep row identity through draft copies without storing UI data in settings.
+    next.rules.forEach((rule, index) => ruleIdentities.set(rule, ruleKey(draft.rules[index])));
     fn(next);
     draft = next;
     saveError = "";
     savedOnce = false;
+    return true;
   }
   function send(message: unknown) {
     window.webkit?.messageHandlers?.finicky?.postMessage(
@@ -518,7 +578,7 @@
     clearTimeout(syncTimer);
   });
   function apply() {
-    if (!dirty || saving || importing || learningBusy || syncView.pending || externalChange || validationError)
+    if (!loaded || !dirty || saving || importing || learningBusy || syncView.pending || externalChange || validationError)
       return;
     saving = true;
     saveError = "";
@@ -534,6 +594,11 @@
       send({ type: "getRules" });
     }, 12000);
   }
+  function handleAppKeydown(event: KeyboardEvent) {
+    if (event.key.toLowerCase() !== "s" || !event.metaKey || event.altKey || event.ctrlKey || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    if (!modal && !event.repeat) apply();
+  }
   function discard() {
     draft = clone(incoming || baseline);
     baseline = clone(draft);
@@ -542,15 +607,23 @@
     saveError = "";
     closeModal();
   }
-  function moveRule(index: number, direction: number) {
+  async function moveRule(index: number, direction: number) {
+    const destination = index + direction;
+    if (saving || importing || syncView.pending || index < 0 || index >= draft.rules.length || destination < 0 || destination >= draft.rules.length) return;
+    const movedRule = draft.rules[index];
+    const identity = ruleKey(movedRule);
     mutate((model) => {
-      const destination = index + direction;
-      if (destination < 0 || destination >= model.rules.length) return;
       [model.rules[index], model.rules[destination]] = [
         model.rules[destination],
         model.rules[index],
       ];
     });
+    await tick();
+    const row = document.querySelector<HTMLElement>(`[data-rule-key="${identity}"]`);
+    const sameDirection = row?.querySelector<HTMLButtonElement>(`[data-rule-move="${direction}"]:not(:disabled)`);
+    const availableDirection = sameDirection || row?.querySelector<HTMLButtonElement>("[data-rule-move]:not(:disabled)");
+    availableDirection?.focus({ preventScroll: true });
+    ruleMoveAnnouncement = `${ruleName(movedRule)} moved to position ${destination + 1} of ${draft.rules.length}.`;
   }
   function setDefault(value: string) {
     if (value === "custom") return;
@@ -571,8 +644,12 @@
   let modal:
     "rule" | "profile" | "deleteRule" | "deleteProfile" | "discard" | "" = "";
   let modalElement: HTMLDialogElement;
+  let modalTrigger: HTMLElement | null = null;
   let modalError = "";
   let editIndex = -1;
+  let editingRuleIdentity: number | null = null;
+  let pendingRuleDeletion: { identity: number; name: string } | null = null;
+  let pendingProfileDeletion: SavedProfile | null = null;
   let ruleForm: Rule = { match: [], browser: "Google Chrome" };
   let matchType = "app";
   let matchText = "";
@@ -588,18 +665,60 @@
   let originalProfile: SavedProfile | null = null;
   let updateReferences = true;
   async function openModal(type: typeof modal) {
+    if (!modalElement?.open)
+      modalTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     modalError = "";
+    if (type === "deleteRule") {
+      const rule = draft.rules[editIndex];
+      pendingRuleDeletion = rule ? { identity: ruleKey(rule), name: ruleName(rule) } : null;
+    }
+    if (type === "deleteProfile") pendingProfileDeletion = originalProfile ? clone(originalProfile) : null;
     modal = type;
     await tick();
-    modalElement.showModal();
+    if (!modalElement.open) modalElement.showModal();
+    const initialFocus = modalElement.querySelector<HTMLElement>(
+      type === "rule" ? "#rule-name" : type === "profile" ? "#profile-name" : "[data-dialog-cancel]",
+    );
+    initialFocus?.focus({ preventScroll: true });
   }
-  function closeModal() {
+  async function closeModal() {
+    const returnFocus = modalTrigger;
     modalElement?.close();
     modal = "";
     modalError = "";
+    modalTrigger = null;
+    pendingRuleDeletion = null;
+    pendingProfileDeletion = null;
+    await tick();
+    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+    else pageHeading?.focus({ preventScroll: true });
+  }
+  function confirmDeletion() {
+    if (saving || importing || syncView.pending) {
+      modalError = "Wait for the current settings update to finish, then try again.";
+      return;
+    }
+    if (modal === "deleteRule") {
+      const current = draft.rules[editIndex];
+      if (!pendingRuleDeletion || !current || ruleKey(current) !== pendingRuleDeletion.identity) {
+        modalError = "This rule changed or was removed. Close this dialog and review the current rules before deleting.";
+        return;
+      }
+      mutate((model) => model.rules.splice(editIndex, 1));
+    } else if (modal === "deleteProfile") {
+      const current = draft.profiles?.find((profile) => profile.id === pendingProfileDeletion?.id);
+      if (!pendingProfileDeletion || !current || JSON.stringify(current) !== JSON.stringify(pendingProfileDeletion)) {
+        modalError = "This profile changed or was removed. Close this dialog and review the current profiles before removing it.";
+        return;
+      }
+      const profileId = pendingProfileDeletion.id;
+      mutate((model) => { model.profiles = model.profiles?.filter((profile) => profile.id !== profileId); });
+    } else return;
+    closeModal();
   }
   function editRule(index = -1) {
     editIndex = index;
+    editingRuleIdentity = index >= 0 && draft.rules[index] ? ruleKey(draft.rules[index]) : null;
     ruleForm =
       index >= 0
         ? clone(draft.rules[index])
@@ -655,6 +774,10 @@
   }
   function saveRule(event: SubmitEvent) {
     event.preventDefault();
+    if (editIndex >= 0 && (!draft.rules[editIndex] || ruleKey(draft.rules[editIndex]) !== editingRuleIdentity)) {
+      modalError = "This rule changed while you were editing. Close this dialog and reopen the rule to edit its current settings.";
+      return;
+    }
     const next = clone(ruleForm);
     if (next.private && unsupportedPrivate(next.browser)) {
       modalError =
@@ -710,10 +833,15 @@
     next.profileDirectory = next.profileDirectory?.trim();
     if (!next.profile?.trim()) delete next.profile;
     if (!next.profileDirectory?.trim()) delete next.profileDirectory;
-    mutate((model) => {
+    if (editIndex >= 0) ruleIdentities.set(next, ruleKey(draft.rules[editIndex]));
+    const updated = mutate((model) => {
       if (editIndex < 0) model.rules.push(next);
       else model.rules[editIndex] = next;
     });
+    if (!updated) {
+      modalError = "Wait for the current settings update to finish, then try again. Your edits are still here.";
+      return;
+    }
     closeModal();
   }
   function newProfileId(): string {
@@ -756,6 +884,13 @@
   }
   function saveProfile(event: SubmitEvent) {
     event.preventDefault();
+    if (originalProfile) {
+      const current = draft.profiles?.find((profile) => profile.id === originalProfile?.id);
+      if (!current || JSON.stringify(current) !== JSON.stringify(originalProfile)) {
+        modalError = "This profile changed or was removed while you were editing. Close this dialog and reopen the profile to edit its current settings.";
+        return;
+      }
+    }
     const next = clone(profileForm);
     if (next.private && unsupportedPrivate(next.browser)) {
       modalError =
@@ -786,7 +921,7 @@
       return;
     }
     if (next.profileDirectory) delete next.profile;
-    mutate((model) => {
+    const updated = mutate((model) => {
       const previous = originalProfile;
       model.profiles = (model.profiles || []).filter((p) => p.id !== next.id);
       if (previous)
@@ -815,6 +950,10 @@
         }
       }
     });
+    if (!updated) {
+      modalError = "Wait for the current settings update to finish, then try again. Your edits are still here.";
+      return;
+    }
     closeModal();
   }
   function grantBrowserAccess() {
@@ -868,6 +1007,8 @@
   }
 </script>
 
+<svelte:window onkeydown={handleAppKeydown} />
+
 <div class="finicky-shell">
   <aside class="sidebar">
     <button
@@ -876,28 +1017,35 @@
       aria-label="Finicky Plus home"
       ><span class="brand-mark"><Icon name="route" size={25} /></span><span
         class="brand-name"
-        >Finicky Plus<span class="brand-sub">LINKS, SORTED.</span></span
+        >Finicky Plus<span class="brand-sub">Browser routing</span></span
       ></button
     >
-    <div class="sidebar-label">YOUR WORKSPACE</div>
     <nav aria-label="Main navigation">
-      {#each navigation as item}<button
-          class:active={page === item.id}
-          class="nav-item"
-          onclick={() => navigate(item.id)}
-          aria-current={page === item.id ? "page" : undefined}
-          ><Icon name={item.icon} size={18} /><span>{item.label}</span
-          >{#if item.id === "routing" && draft.rules.length}<span
-              class="nav-count">{draft.rules.length}</span
-            >{/if}</button
-        >{/each}
+      {#each navigation as group}
+        <div class="nav-group">
+          <div class="sidebar-label">{group.label}</div>
+          {#each group.items as item}
+            <button
+              class:active={page === item.id}
+              class="nav-item"
+              onclick={() => navigate(item.id)}
+              aria-current={page === item.id ? "page" : undefined}
+              ><Icon name={item.icon} size={18} /><span>{item.label}</span
+              >{#if item.id === "routing" && draft.rules.length}<span
+                  class="nav-count">{draft.rules.length}</span
+                >{/if}</button
+            >
+          {/each}
+        </div>
+      {/each}
     </nav>
     <div class="sidebar-bottom">
-      <div class="sidebar-secondary">
+      <nav class="sidebar-secondary" aria-label="Support">
         <button
           class:active={page === "diagnostics"}
           class="nav-item"
           onclick={() => navigate("diagnostics")}
+          aria-current={page === "diagnostics" ? "page" : undefined}
           ><Icon name="logs" size={17} /><span>Diagnostics</span
           >{#if numErrors}<span class="error-count">{numErrors}</span
             >{/if}</button
@@ -905,43 +1053,42 @@
           class:active={page === "about"}
           class="nav-item"
           onclick={() => navigate("about")}
-          ><Icon name="info" size={17} /><span>About Finicky Plus</span></button
+          aria-current={page === "about" ? "page" : undefined}
+          ><Icon name="info" size={17} /><span>About</span></button
         >
-      </div>
+      </nav>
       <div class="local-status">
         <span></span>{isPreview ? "Interactive preview" : "Routing on your Mac"}
       </div>
-      <p>Your profiles. Your rules.<br />iCloud sync is optional.</p>
       {#if version}<span class="version-label">{version}</span>{/if}
     </div>
   </aside>
-  <main class="main-panel">
+  <main class="main-panel" class:has-changes-footer={showChangesFooter}>
     {#if isPreview}<div class="preview-banner">
         <span class="preview-dot"></span><strong>Interactive preview</strong
         ><span>Example profiles · changes stay in this browser</span>
       </div>{/if}
     <header class="main-header">
       <div>
-        <div class="eyebrow">
-          FINICKY PLUS <span>/</span>
-          {page === "test" ? "LINK PREVIEW" : "BROWSER ROUTING"}
-        </div>
-        <h1>{pageTitles[page]}</h1>
+        <h1 bind:this={pageHeading} tabindex="-1">{pageTitles[page]}</h1>
         <p>{subtitles[page]}</p>
       </div>
-      <div class="config-status" class:pending={dirty}>
-        <span></span>{!loaded
-          ? "Connecting…"
-          : dirty
-            ? "Unapplied changes"
-            : "Configuration loaded"}
-      </div>
+      {#if showGlobalStatus}<div class="config-status" class:pending={dirty} class:error={Boolean(saveError || validationError) || externalChange} class:busy={saving || !loaded} role="status">
+        <span></span>{saving
+          ? "Applying…"
+          : saveError || validationError || externalChange
+            ? "Needs attention"
+            : !loaded
+              ? "Loading…"
+              : dirty
+                ? "Unapplied changes"
+                : "Settings saved"}
+      </div>{/if}
     </header>
     <div class="page-content" inert={saving}>
-      {#if externalChange}<div class="notice-banner warning">
+      {#if externalChange}<div class="notice-banner warning" role="alert">
           <Icon name="info" size={16} /><span
-            >Your configuration changed outside this window. Reload it before
-            making more changes.</span
+            >Settings changed outside this window. Reload before making more changes.</span
           ><button class="text-button" onclick={() => openModal("discard")}
             >Reload</button
           >
@@ -981,6 +1128,7 @@
           </div>
           {#if profiles.length}<div
               class="profile-grid"
+              class:compact={page === "routing"}
               class:expanded={page === "profiles"}
             >
               {#each profiles as p (p.id)}<article
@@ -1025,7 +1173,7 @@
             </div>{:else}<div class="profile-empty">
               <span class="empty-icon"><Icon name="profiles" size={25} /></span>
               <div>
-                <h3>A space for every part of your day.</h3>
+                <h3>Add your browser profiles</h3>
                 <p>
                   Add your personal, work, or school browser profiles to get
                   started.
@@ -1050,9 +1198,10 @@
           </div>
           <div class="rules-panel">
             {#if draft.rules.length}<ol class="rule-list">
-                {#each draft.rules as rule, index}<li
+                {#each draft.rules as rule, index (ruleKey(rule))}<li
                     class="rule-row"
                     class:disabled-rule={rule.enabled === false}
+                    data-rule-key={ruleKey(rule)}
                   >
                     <span class="rule-priority"
                       >{String(index + 1).padStart(2, "0")}</span
@@ -1060,12 +1209,13 @@
                     <div class="rule-main">
                       <div class="rule-title-row">
                         <h3>{ruleName(rule)}</h3>
+                        {#if rule.enabled === false}<span class="rule-off">Off</span>{/if}
                         <span class="rule-type"
                           >{rule.sourceApps?.length
                             ? rule.match.length
-                              ? "APP + WEBSITE"
-                              : "SOURCE APP"
-                            : "WEBSITE"}</span
+                              ? "App + website"
+                              : "Source app"
+                            : "Website"}</span
                         >
                       </div>
                       <div class="rule-conditions">
@@ -1094,7 +1244,7 @@
                         class:on={rule.enabled !== false}
                         role="switch"
                         aria-checked={rule.enabled !== false}
-                        aria-label={`${rule.enabled !== false ? "Disable" : "Enable"} ${ruleName(rule)}`}
+                        aria-label={`Use rule ${ruleName(rule)}`}
                         onclick={() =>
                           mutate(
                             (model) =>
@@ -1110,12 +1260,14 @@
                       <div class="reorder-buttons">
                         <button
                           class="icon-button"
+                          data-rule-move="-1"
                           disabled={index === 0}
                           aria-label={`Move ${ruleName(rule)} up`}
                           onclick={() => moveRule(index, -1)}
                           ><Icon name="up" size={12} /></button
                         ><button
                           class="icon-button"
+                          data-rule-move="1"
                           disabled={index === draft.rules.length - 1}
                           aria-label={`Move ${ruleName(rule)} down`}
                           onclick={() => moveRule(index, 1)}
@@ -1134,12 +1286,13 @@
                   </li>{/each}
               </ol>{:else}<div class="empty-state">
                 <Icon name="route" size={27} />
-                <h3>Every link starts somewhere.</h3>
+                <h3>No routing rules yet</h3>
                 <p>Add a rule to send links to the right browser profile.</p>
                 <button class="button secondary" onclick={() => editRule()}
                   ><Icon name="plus" size={14} />Add your first rule</button
                 >
               </div>{/if}
+            <p class="sr-only" role="status" aria-live="polite" aria-atomic="true">{ruleMoveAnnouncement}</p>
             <div class="fallback-row">
               <span class="fallback-icon"><Icon name="globe" size={17} /></span>
               <div>
@@ -1321,7 +1474,7 @@
                 </p>
               </div>{:else}<div class="test-empty">
                 <span class="empty-icon"><Icon name="route" size={27} /></span>
-                <h3>Follow the route</h3>
+                <h3>Preview a destination</h3>
                 <p>
                   Choose an app and a URL to see where<br />your applied rules
                   send the link.
@@ -1450,6 +1603,7 @@
           blocked={syncBlocked}
           error={syncView.error}
           jsConfig={Boolean(config.isJSConfig)}
+          onDraftChange={(dirty) => (syncMappingDirty = dirty)}
           onRefresh={() => syncRequest({ type: "getSync" })}
           onEnabled={(enabled) => syncRequest({ type: "enableSync", enabled })}
           onSync={() => syncRequest({ type: "syncNow" })}
@@ -1475,33 +1629,14 @@
           <About {version} />
         </div>{/if}
     </div>
-    <footer class="changes-footer">
-      <div class="save-state">
-        <span class="save-state-icon" class:pending={dirty}
-          ><Icon name={dirty ? "edit" : "check"} size={13} /></span
+    {#if showChangesFooter}<footer class="changes-footer" aria-label="Apply settings changes">
+      <div class="save-state" role="status" aria-live="polite" aria-atomic="true">
+        <span class="save-state-icon" class:pending={dirty} class:error={Boolean(saveError || validationError) || externalChange}
+          ><Icon name={saveError || validationError || externalChange ? "info" : dirty ? "edit" : "check"} size={16} /></span
         >
         <div>
-          <strong
-            >{saving
-              ? "Applying changes…"
-              : saveError
-                ? "Couldn’t confirm your changes"
-                : dirty
-                  ? "Unapplied changes"
-                  : savedOnce
-                    ? isPreview
-                      ? "Saved in this preview"
-                      : "Written to Finicky Plus"
-                    : "Configuration loaded"}</strong
-          ><span class:error-text={Boolean(saveError || validationError)}
-            >{saveError ||
-              validationError ||
-              (dirty
-                ? "Apply when your routing looks right."
-                : isPreview
-                  ? "Your Mac’s Finicky Plus configuration is unchanged."
-                  : "Changes are saved only when you apply them.")}</span
-          >
+          <strong>{footerTitle}</strong>
+          <span class:error-text={Boolean(saveError || validationError)}>{footerDetail}</span>
         </div>
       </div>
       <div class="footer-actions">
@@ -1512,9 +1647,12 @@
           >{/if}<button
           class="button primary"
           onclick={apply}
+          title="Apply changes (⌘S)"
+          aria-keyshortcuts="Meta+S"
           disabled={!loaded ||
             !dirty ||
             saving ||
+            importing ||
             learningBusy ||
             syncBusy ||
             externalChange ||
@@ -1522,16 +1660,16 @@
           >{#if saving}<span class="spinner"></span>{/if}Apply changes</button
         >
       </div>
-    </footer>
+    </footer>{/if}
   </main>
 </div>
 
-<dialog class="editor-dialog" bind:this={modalElement} oncancel={closeModal}>
+<dialog class="editor-dialog" bind:this={modalElement} aria-labelledby="editor-dialog-title" aria-describedby={modal === "deleteRule" || modal === "deleteProfile" || modal === "discard" ? "editor-dialog-description" : undefined} oncancel={(event) => { event.preventDefault(); closeModal(); }}>
   {#if modal === "rule"}<form onsubmit={saveRule}>
       <header class="dialog-header">
         <div>
-          <div class="eyebrow">FINICKY PLUS / ROUTING</div>
-          <h2>{editIndex < 0 ? "Add routing rule" : "Edit routing rule"}</h2>
+          <h2 id="editor-dialog-title">{editIndex < 0 ? "Add routing rule" : "Edit routing rule"}</h2>
+          <p class="dialog-description">Changes are added to your draft. Apply them from the main window.</p>
         </div>
         <button
           type="button"
@@ -1690,15 +1828,15 @@
         <button class="button secondary" type="button" onclick={closeModal}
           >Cancel</button
         ><button class="button primary" type="submit"
-          >{editIndex < 0 ? "Add rule" : "Save rule"}</button
+          >{editIndex < 0 ? "Add rule" : "Update rule"}</button
         >
       </footer>
     </form>
   {:else if modal === "profile"}<form onsubmit={saveProfile}>
       <header class="dialog-header">
         <div>
-          <div class="eyebrow">FINICKY PLUS / PROFILES</div>
-          <h2>{originalProfile ? "Edit profile" : "Add browser profile"}</h2>
+          <h2 id="editor-dialog-title">{originalProfile ? "Edit profile" : "Add browser profile"}</h2>
+          <p class="dialog-description">Save a destination for rules and the browser picker.</p>
         </div>
         <button
           type="button"
@@ -1845,7 +1983,7 @@
         {#if originalProfile}<button
             class="text-button danger-text"
             type="button"
-            onclick={() => (modal = "deleteProfile")}>Remove shortcut</button
+            onclick={() => openModal("deleteProfile")}>Remove shortcut</button
           >{/if}<span class="spacer"></span><button
           class="button secondary"
           type="button"
@@ -1854,7 +1992,7 @@
       </footer>
     </form>
   {:else if modal}<header class="dialog-header">
-      <h2>
+      <h2 id="editor-dialog-title">
         {modal === "deleteRule"
           ? "Delete routing rule?"
           : modal === "deleteProfile"
@@ -1871,35 +2009,26 @@
       >
     </header>
     <div class="dialog-body">
-      <p class="confirmation-copy">
+      <p class="confirmation-copy" id="editor-dialog-description">
         {modal === "deleteRule"
-          ? `“${ruleName(draft.rules[editIndex])}” will be removed from your draft. Apply changes to update Finicky Plus.`
+          ? `“${pendingRuleDeletion?.name || "This rule"}” will be removed from your draft. Apply changes to update Finicky Plus.`
           : modal === "deleteProfile"
-            ? "This removes the saved label from Finicky Plus. Existing routing rules and the browser profile will stay in place."
+            ? `Remove the saved “${pendingProfileDeletion?.name || "profile"}” label from Finicky Plus. Existing routing rules and the browser profile will stay in place.`
             : externalChange
               ? "Load the latest configuration from disk? Your unapplied edits in this window will be discarded."
               : "Return to your last applied configuration? Your unapplied changes will be discarded."}
       </p>
+      {#if modalError}<div class="inline-error" role="alert">{modalError}</div>{/if}
     </div>
     <footer class="dialog-footer">
-      <button class="button secondary" onclick={closeModal}>Cancel</button
+      <button class="button secondary" data-dialog-cancel onclick={closeModal}>Cancel</button
       ><button
         class="button"
         class:danger={modal.startsWith("delete")}
         class:primary={!modal.startsWith("delete")}
         onclick={() => {
-          if (modal === "deleteRule") {
-            mutate((model) => model.rules.splice(editIndex, 1));
-            closeModal();
-          } else if (modal === "deleteProfile") {
-            mutate(
-              (model) =>
-                (model.profiles = model.profiles?.filter(
-                  (p) => p.id !== originalProfile?.id,
-                )),
-            );
-            closeModal();
-          } else discard();
+          if (modal === "deleteRule" || modal === "deleteProfile") confirmDeletion();
+          else discard();
         }}
         >{modal === "deleteRule"
           ? "Delete rule"

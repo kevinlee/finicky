@@ -43,7 +43,7 @@
 
 <div class="section-heading">
   <div>
-    <h2>Recent links</h2>
+    <div class="history-heading-title"><h2>Recent links</h2><span class="status-badge">{enabled ? "On this Mac" : "History off"}</span></div>
     <p>
       {enabled
         ? "Up to 200 recent links, stored on this Mac. Private browsing links are excluded."
@@ -66,7 +66,7 @@
       disabled={clearing}
       onclick={() => (confirming = false)}>Cancel</button
     ><button
-      class="button small primary"
+      class="button small danger"
       disabled={clearing}
       onclick={() => {
         onClear();
@@ -81,6 +81,7 @@
     placeholder="Search links, profiles, or source apps…"
     bind:value={search}
   />
+  {#if loaded && entries.length}<p class="field-hint history-result-count" role="status">{search ? `${filtered.length} of ${entries.length} links` : `${entries.length} saved ${entries.length === 1 ? "link" : "links"}`}</p>{/if}
 </div>
 {#if !loaded}<div class="empty-state" role="status">
     <Icon name="history" size={26} />
@@ -88,7 +89,7 @@
   </div>
 {:else if !filtered.length}<div class="empty-state">
     <Icon name="history" size={26} />
-    <h3>{search ? "No matching links" : "A fresh start"}</h3>
+    <h3>{search ? "No matching links" : enabled ? "No links recorded yet" : "History is off"}</h3>
     <p>
       {search
         ? "Try another website, browser, or profile name."
@@ -137,3 +138,8 @@
         </div>
       </li>{/each}
   </ol>{/if}
+
+<style>
+  .history-heading-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .history-result-count { margin-top: 8px; }
+</style>

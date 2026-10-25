@@ -42,6 +42,22 @@ export function isChromiumBrowser(browser: string): boolean {
   return /chrome|chromium|brave|edgemac|microsoft edge|vivaldi|opera|arc|company\.thebrowser/i.test(browser);
 }
 
+// Browser names are edited character by character. Keep both explicit profile
+// values in the draft so intermediate text cannot erase the user's destination.
+export function updateSyncBindingDraft(binding: SyncBinding | undefined, patch: Partial<SyncBinding>): SyncBinding {
+  return { browser: "", ...binding, ...patch };
+}
+
+export function syncBindingForSave(binding: SyncBinding, manual = false): SyncBinding {
+  const browser = binding.browser.trim();
+  const directory = binding.profileDirectory?.trim();
+  const profile = binding.profile?.trim();
+  if (manual && !isChromiumBrowser(browser)) {
+    return { browser, ...(profile ? { profile } : {}) };
+  }
+  return { browser, ...(directory ? { profileDirectory: directory } : !manual && profile ? { profile } : {}) };
+}
+
 export function syncBindingError(binding?: SyncBinding): string {
   if (!binding?.browser.trim()) return "Choose a local destination.";
   if (binding.browser === "prompt") return "Choose a browser instead of the picker.";

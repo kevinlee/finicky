@@ -31,7 +31,7 @@
   <div class="section-heading">
     <div>
       <h2 id="learning-heading">Learn from your choices</h2>
-      <p>A local experiment that checks predictions without changing where links open.</p>
+      <p>Measure profile predictions in the background. Your routing stays under your control.</p>
     </div>
     <button class="button small secondary" disabled={busy} onclick={onRefresh}>Refresh</button>
   </div>
@@ -40,7 +40,7 @@
     <div class="notice-banner history-confirm" role="alert">
       <span>Delete all local learning examples and learned counts? This cannot be undone. Your settings, routing rules, and history stay as they are.</span>
       <button class="button small secondary" disabled={busy} onclick={() => (confirmingClear = false)}>Cancel</button>
-      <button class="button small primary" disabled={busy} onclick={() => { onClear(); confirmingClear = false; }}>Reset learning data</button>
+      <button class="button small danger" disabled={busy} onclick={() => { onClear(); confirmingClear = false; }}>Reset learning data</button>
     </div>
   {/if}
   {#if !snapshot}
@@ -52,7 +52,7 @@
     <div class="panel preferences-panel learning-settings">
       <div class="preference-row">
         <div class="preference-description">
-          <h3>Learn on this Mac</h3>
+          <div class="learning-title"><h3>Learn on this Mac</h3><span class="status-badge">Observe only</span></div>
           <p>{snapshot.enabled ? "On · predictions stay in the background." : "Off · no new learning examples are collected."}</p>
         </div>
         <button
@@ -67,28 +67,32 @@
       </div>
       <div class="learning-explanation">
         <Icon name="lock" size={17} />
-        <div>
-          <p>Learning uses explicit chooser selections from eligible links that a browser reports as regular browsing. Private or unknown sources and private destinations are excluded.</p>
-          <p>Only domains, source apps, and choices stay on this Mac. History is not training data. Predictions never choose or preselect a profile.</p>
-          <p>Changes save immediately. Turning learning off keeps existing examples until you clear them.</p>
-        </div>
+        <p>Local to this Mac. Predictions never choose or preselect a profile.</p>
       </div>
     </div>
+    <p class="field-hint learning-save-hint">Changes save immediately. Turning learning off keeps existing examples.</p>
+    <details class="learning-details">
+      <summary>What learning collects</summary>
+      <p>Learning uses explicit picker selections from eligible links that a browser reports as regular browsing. Private or unknown sources and private destinations are excluded.</p>
+      <p>Only domains, source apps, and choices are stored on this Mac. History is not training data.</p>
+    </details>
 
     <section class="feature-section" aria-labelledby="learning-evaluation-heading">
       <div class="section-heading">
-        <div><h2 id="learning-evaluation-heading">Checked against initial choices</h2><p>Each prediction uses only choices known before that request.</p></div>
+        <div><h2 id="learning-evaluation-heading">Prediction quality</h2><p>Compared with the first choice you made for each eligible link.</p></div>
       </div>
       <dl class="learning-stats">
         <div><dt>Confirmed choices</dt><dd>{snapshot.feedbackCount}</dd></div>
         <div><dt>Predictions made</dt><dd>{snapshot.evaluation.predicted}</dd></div>
         <div><dt>Matched initial choices</dt><dd>{snapshot.evaluation.correct}</dd></div>
-        <div><dt>Insufficient data</dt><dd>{snapshot.evaluation.abstained}</dd></div>
+        <div><dt>Not enough data</dt><dd>{snapshot.evaluation.abstained}</dd></div>
       </dl>
       <p class="learning-evaluation">{learningEvaluation(snapshot)}</p>
-      <p class="learning-quiet">Unconfirmed requests do not count as successes or failures. These results describe confirmed choices, not all links.</p>
-      <p class="learning-quiet">Corrections update future learning. Historical results keep the original chooser selection.</p>
-      {#if snapshot.limitations?.length}<details class="learning-limitations"><summary>About this experiment</summary><ul>{#each snapshot.limitations as limitation}<li>{limitation}</li>{/each}</ul></details>{/if}
+      <details class="learning-details"><summary>How results are measured</summary>
+        <p>Each prediction uses only choices known before that request. Unconfirmed requests do not count as successes or failures. These results describe confirmed choices, not all links.</p>
+        <p>Corrections update future learning. Historical results keep the original picker selection.</p>
+        {#if snapshot.limitations?.length}<ul>{#each snapshot.limitations as limitation}<li>{limitation}</li>{/each}</ul>{/if}
+      </details>
     </section>
 
     <section class="feature-section" aria-labelledby="learning-examples-heading">
@@ -100,7 +104,7 @@
         <div class="notice-banner history-confirm" role="alert">
           <span>Delete all local learning examples and learned counts? This cannot be undone. Your settings, routing rules, and history stay as they are.</span>
           <button class="button small secondary" disabled={busy} onclick={() => (confirmingClear = false)}>Cancel</button>
-          <button class="button small primary" disabled={busy} onclick={() => { onClear(); confirmingClear = false; }}>Delete learning data</button>
+          <button class="button small danger" disabled={busy} onclick={() => { onClear(); confirmingClear = false; }}>Delete learning data</button>
         </div>
       {/if}
       {#if !snapshot.observations.length}
@@ -112,7 +116,7 @@
               <div class="history-card-top"><h3>{observation.domain}</h3><time datetime={observation.observedAt}>{time(observation.observedAt)}</time></div>
               {#if observation.sourceApp}<p class="history-source">From {learningSourceName(observation.sourceApp)}</p>{/if}
               <dl class="learning-choice-pair">
-                <div><dt>Confirmed choice</dt><dd>{observation.confirmedDestinationId ? observation.confirmedDestinationName || "Unavailable destination" : "No confirmed choice"}{#if ["correction", "explicit_correction"].includes(observation.feedbackKind || "")}<span class="learning-corrected">Corrected</span>{/if}</dd></div>
+                <div><dt>Confirmed choice</dt><dd>{observation.confirmedDestinationId ? observation.confirmedDestinationName || "Unavailable destination" : "No confirmed choice"}{#if ["correction", "explicit_correction"].includes(observation.feedbackKind || "")}<span class="status-badge learning-corrected">Corrected</span>{/if}</dd></div>
                 <div><dt>Background prediction</dt><dd>{learningPrediction(observation)}</dd></div>
               </dl>
               {#if editing === observation.id}
@@ -145,26 +149,29 @@
 
 <style>
   .learning-settings { margin-top: 20px; }
+  .learning-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .learning-recovery { margin-top: 16px; }
-  .learning-explanation { display: flex; gap: 12px; padding: 18px 22px; border-top: 1px solid var(--border-color); color: var(--text-secondary); font-size: 12px; }
-  .learning-explanation p + p { margin-top: 8px; }
-  .learning-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0 12px; }
-  .learning-stats > div { padding: 18px; border: 1px solid var(--card-border); border-radius: 12px; background: var(--card-bg); }
-  dt { font-size: 11px; color: var(--text-secondary); }
-  dd { margin: 5px 0 0; }
-  .learning-stats dd { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .learning-evaluation { font-size: 12px; }
-  .learning-quiet { margin-top: 6px; font-size: 11px; color: var(--text-secondary); }
-  .learning-limitations { margin-top: 14px; font-size: 11px; color: var(--text-secondary); }
-  .learning-limitations summary { cursor: pointer; }
-  .learning-limitations li + li { margin-top: 6px; }
-  .learning-list { margin-top: 20px; }
-  .learning-choice-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin: 18px 0; }
-  .learning-choice-pair dd { font-size: 13px; overflow-wrap: anywhere; }
-  .learning-corrected { display: inline-block; margin-left: 7px; font-size: 10px; color: var(--text-secondary); }
+  .learning-explanation { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-top: 1px solid var(--border-color); color: var(--text-secondary); font-size: 12px; }
+  .learning-save-hint { margin-top: 8px; }
+  .learning-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 16px 0; border: 1px solid var(--card-border); border-radius: 10px; background: var(--card-bg); overflow: hidden; }
+  .learning-stats > div { padding: 20px; }
+  .learning-stats > div + div { border-left: 1px solid var(--border-color); }
+  dt { font-size: 12px; color: var(--text-secondary); }
+  dd { margin: 4px 0 0; }
+  .learning-stats dd { font-size: 28px; line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
+  .learning-evaluation { font-size: 14px; }
+  .learning-quiet { margin-top: 8px; font-size: 12px; color: var(--text-secondary); }
+  .learning-details { margin-top: 8px; font-size: 12px; color: var(--text-secondary); }
+  .learning-details summary { cursor: pointer; display: list-item; width: fit-content; padding: 8px 0; min-height: 32px; color: var(--text-primary); font-weight: 500; }
+  .learning-details p + p, .learning-details li + li { margin-top: 8px; }
+  .learning-details ul { padding-left: 20px; margin-top: 8px; }
+  .learning-list { margin-top: 16px; }
+  .learning-choice-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
+  .learning-choice-pair dd { font-size: 14px; overflow-wrap: anywhere; }
+  .learning-corrected { margin-left: 8px; }
   .learning-example-actions { justify-content: flex-end; }
   .learning-correction { padding-top: 16px; border-top: 1px solid var(--border-color); }
-  .learning-correction .field { margin-bottom: 14px; }
-  @media (max-width: 850px) { .learning-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .learning-correction .field { margin-bottom: 12px; }
+  @media (max-width: 850px) { .learning-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .learning-stats > div:nth-child(3) { border-left: 0; } .learning-stats > div:nth-child(n+3) { border-top: 1px solid var(--border-color); } }
   @media (max-width: 560px) { .learning-choice-pair { grid-template-columns: 1fr; } .learning-example-actions { justify-content: flex-start; } }
 </style>

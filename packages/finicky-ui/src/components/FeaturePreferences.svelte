@@ -91,36 +91,6 @@
   }
 </script>
 
-<section class="feature-section" aria-labelledby="appearance-heading">
-  <div class="section-heading">
-    <div>
-      <h2 id="appearance-heading">Menu bar appearance</h2>
-      <p>A familiar marker for your link destinations.</p>
-    </div>
-  </div>
-  <div class="preferences-panel">
-    <div class="preference-row preference-control">
-      <div>
-        <h3>Menu bar icon</h3>
-        <p>Choose the symbol Finicky Plus uses in your Mac’s menu bar.</p>
-      </div>
-      <select
-        aria-label="Menu bar icon"
-        value={current.menuIcon}
-        {disabled}
-        onchange={(event) =>
-          update({
-            menuIcon: event.currentTarget.value as Features["menuIcon"],
-          })}
-        ><option value="default">Finicky Plus icon</option><option
-          value="browser">Default browser icon</option
-        ><option value="globe">Globe</option><option value="arrow">Arrow</option
-        ></select
-      >
-    </div>
-  </div>
-</section>
-
 <section class="feature-section" aria-labelledby="picker-heading">
   <div class="section-heading">
     <div>
@@ -176,7 +146,7 @@
     <div class="preference-row">
       <div>
         <h3>Open from clipboard</h3>
-        <p>Send a copied web link through Finicky Plus.</p>
+        <p>Route a web link copied to your clipboard.</p>
       </div>
       <button class="button small secondary" onclick={onClipboard}
         >Open clipboard link</button
@@ -261,7 +231,7 @@
   <div class="section-heading">
     <div>
       <h2 id="handling-heading">Link handling</h2>
-      <p>A little cleanup before a link reaches its destination.</p>
+      <p>Clean links and choose which services open in native apps.</p>
     </div>
   </div>
   <div class="preferences-panel">
@@ -282,7 +252,8 @@
         >
       </div>{/each}
   </div>
-  <div class="panel feature-fields service-preferences">
+  <details class="panel feature-fields service-preferences" open={current.nativeApps}>
+    <summary class="preference-details-heading">Choose native app services</summary>
     <div class="section-heading">
       <div>
         <h3>Native app services</h3>
@@ -332,8 +303,9 @@
         ? "Only selected services with a compatible installed app are handed off."
         : "Turn on native app links above to use these service choices."}
     </p>
-  </div>
-  <div class="panel feature-fields extra-shorteners">
+  </details>
+  <details class="panel feature-fields extra-shorteners" open={Boolean(current.extraShorteners.length)}>
+    <summary class="preference-details-heading">Additional shortener domains</summary>
     <div class="field">
       <label for="extra-shorteners">Additional shortener domains</label
       ><textarea
@@ -357,16 +329,47 @@
           {shortenerError(current.extraShorteners)}
         </p>{/if}
     </div>
+  </details>
+</section>
+<section class="feature-section" aria-labelledby="appearance-heading">
+  <div class="section-heading">
+    <div>
+      <h2 id="appearance-heading">Menu bar appearance</h2>
+      <p>Choose how the app appears in your menu bar.</p>
+    </div>
+  </div>
+  <div class="preferences-panel">
+    <div class="preference-row preference-control">
+      <div>
+        <h3>Menu bar icon</h3>
+        <p>Choose a recognizable symbol for quick access.</p>
+      </div>
+      <select
+        aria-label="Menu bar icon"
+        value={current.menuIcon}
+        {disabled}
+        onchange={(event) =>
+          update({
+            menuIcon: event.currentTarget.value as Features["menuIcon"],
+          })}
+        ><option value="default">App icon</option><option
+          value="browser">Default browser icon</option
+        ><option value="globe">Globe</option><option value="arrow">Arrow</option
+        ></select
+      >
+    </div>
   </div>
 </section>
+
 <section class="feature-section" aria-labelledby="transform-heading">
   <div class="section-heading">
     <div>
-      <h2 id="transform-heading">URL transformation</h2>
-      <p>Customize a link before its routing rules are checked.</p>
+      <h2 id="transform-heading">Advanced</h2>
+      <p>Customize links with a JavaScript transformation.</p>
     </div>
   </div>
-  <div class="panel feature-fields">
+  <details class="panel feature-fields" open={Boolean(current.transformScript?.trim())}>
+    <summary class="preference-details-heading">URL transformation script</summary>
     <div class="field">
       <label for="global-transform"
         >Global transformation script (optional)</label
@@ -391,8 +394,14 @@
         Use Test a link after applying your changes.
       </p>
     </div>
-  </div>
+  </details>
 </section>
 <datalist id="alternative-browsers"
   >{#each browsers as browser}<option value={browser}></option>{/each}</datalist
 >
+
+<style>
+  .preference-details-heading { min-height: 32px; padding: 4px 0; cursor: pointer; font-size: 14px; font-weight: 600; }
+  details[open] > .preference-details-heading { margin-bottom: 16px; }
+  .extra-shorteners .field, details .field:last-child { margin-bottom: 0; }
+</style>

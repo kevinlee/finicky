@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   beginSyncRequest, bindingForFavorite, emptySyncView, equalBindings, normalizeSyncSnapshot,
   receiveSyncResult, receiveSyncSnapshot, reconcileSyncMappings, syncBindingError,
-  syncMappingErrors, syncMutationBlocked, syncResolution,
+  syncMappingErrors, syncMutationBlocked, syncResolution, syncBindingForSave, updateSyncBindingDraft,
 } from "../src/lib/syncModel.ts";
 
 const snapshot = (patch = {}) => ({
@@ -128,4 +128,47 @@ test("sync state events remain independent of unsaved main settings", () => {
   assert.deepEqual(draft, before);
   assert.equal(view.snapshot.state, "conflict");
   assert.equal("draft" in view, false);
+});
+
+
+test("typing a manual browser name preserves the explicit Chrome directory through intermediate text", () => {
+  let draft = { browser: "Google Chrome", profileDirectory: "Profile 7" };
+  for (const browser of ["", "G", "Google", "Google Chrome Canary"]) {
+    draft = updateSyncBindingDraft(draft, { browser });
+    assert.equal(draft.profileDirectory, "Profile 7");
+  }
+  assert.deepEqual(syncBindingForSave(draft, true), { browser: "Google Chrome Canary", profileDirectory: "Profile 7" });
+  assert.equal(syncBindingError(syncBindingForSave(draft, true)), "");
+});
+
+test("manual save uses only the final browser's explicit profile field without mutating the draft", () => {
+  const original = { browser: "Firefox", profile: "Personal", profileDirectory: "Profile 7" };
+  const firefox = syncBindingForSave(original, true);
+  assert.deepEqual(firefox, { browser: "Firefox", profile: "Personal" });
+  assert.equal(original.profileDirectory, "Profile 7");
+  const chromeDraft = updateSyncBindingDraft(original, { browser: "com.google.Chrome" });
+  assert.deepEqual(syncBindingForSave(chromeDraft, true), { browser: "com.google.Chrome", profileDirectory: "Profile 7" });
+  const unmappedChrome = syncBindingForSave({ browser: "Chrome", profile: "Work" }, true);
+  assert.deepEqual(unmappedChrome, { browser: "Chrome" });
+  assert.notEqual(syncBindingError(unmappedChrome), "");
+  assert.deepEqual(syncBindingForSave(original), { browser: "Firefox", profileDirectory: "Profile 7" });
+});
+
+
+test("normalized manual save remains recoverable on failure and clean after its acknowledgement", () => {
+  const baseline = { work: { browser: "Google Chrome", profileDirectory: "Profile 7" } };
+  const edited = updateSyncBindingDraft(baseline.work, { browser: "Firefox", profile: "Personal" });
+  // The editor replaces its draft with exactly the normalized submitted values,
+  // retaining its baseline until a native snapshot confirms the save.
+  const submitted = { work: syncBindingForSave(edited, true) };
+  assert.deepEqual(submitted, { work: { browser: "Firefox", profile: "Personal" } });
+  const failedSave = reconcileSyncMappings(submitted, baseline, structuredClone(baseline));
+  assert.equal(failedSave.conflict, false);
+  assert.deepEqual(failedSave.draft, submitted);
+  assert.equal(equalBindings(failedSave.draft, failedSave.baseline), false);
+  const successfulRetry = reconcileSyncMappings(failedSave.draft, failedSave.baseline, structuredClone(submitted));
+  assert.equal(successfulRetry.conflict, false);
+  assert.equal(equalBindings(successfulRetry.draft, successfulRetry.baseline), true);
+  assert.deepEqual(successfulRetry.draft, submitted);
+  assert.deepEqual(baseline, { work: { browser: "Google Chrome", profileDirectory: "Profile 7" } });
 });

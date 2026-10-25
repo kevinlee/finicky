@@ -85,7 +85,7 @@
   <div class="section-heading">
     <div>
       <h2 id="browser-access-heading">Browser profile access</h2>
-      <p>Let Finicky find the profiles installed on your Mac.</p>
+      <p>Discover the browser profiles installed on this Mac.</p>
     </div>
   </div>
   <div class="panel integration-card">
@@ -93,9 +93,8 @@
     <div>
       <h3>Refresh browser profile discovery</h3>
       <p>
-        If your profiles are missing, grant access to browser profile folders
-        using the Mac folder picker. Finicky reloads the browser and profile
-        lists when access is granted.
+        Missing a profile? Choose its browser folder in the Mac folder picker.
+        The available browsers and profiles will refresh after access is granted.
       </p>
       <button
         class="button secondary access-button"
@@ -112,7 +111,7 @@
   <div class="section-heading">
     <div>
       <h2 id="automation-heading">Shortcuts & automation</h2>
-      <p>Put your link-routing rules to work anywhere on your Mac.</p>
+      <p>Route links from Shortcuts, scripts, and other apps.</p>
     </div>
   </div>
   <div class="panel integration-card">
@@ -131,7 +130,9 @@
       </p>
     </div>
   </div>
-  <div class="integration-examples">
+  <details class="integration-details panel automation-examples">
+    <summary>URL examples for Shortcuts & scripts</summary>
+    <div class="integration-examples">
     <div>
       <h3>Choose a browser for a link</h3>
       <code>{exampleOpen}</code>
@@ -144,9 +145,10 @@
       <h3>Choose where to open the clipboard</h3>
       <code>{exampleClipboard}</code>
     </div>
-  </div>
+    </div>
+  </details>
   <details class="integration-details">
-    <summary>More automation options</summary>
+    <summary>Advanced automation options</summary>
     <p>
       Open-link URLs also accept <code>private=true</code>,
       <code>background=true</code>, and <code>newWindow=true</code>. Browser
@@ -173,7 +175,7 @@
   <div class="section-heading">
     <div>
       <h2 id="browser-integration-heading">Browser & share integrations</h2>
-      <p>Send an open tab or selected link back through Finicky.</p>
+      <p>Choose a profile from a browser tab, link menu, or the Mac share menu.</p>
     </div>
   </div>
   <div class="panel integration-card">
@@ -191,12 +193,7 @@
         Settings → General → Login Items & Extensions → Sharing. Extension
         availability depends on which companion components are installed.
       </p>
-      <p>
-        For an installed Chromium web app, enter its existing <code>.app</code> path
-        in Profiles → Browser or custom app. Add the exact profile directory when
-        the app is installed in several browser profiles. Web-app wrappers do not
-        support private browsing.
-      </p>
+      <details class="integration-details"><summary>Use an installed browser web app</summary><p>Enter its existing <code>.app</code> path in Profiles → Browser or custom app. Add the exact profile directory when the app is installed in several browser profiles. Web-app wrappers do not support private browsing.</p></details>
     </div>
   </div>
   <div class="info-panel">
@@ -215,8 +212,8 @@
 <section class="feature-section" aria-labelledby="settings-transfer-heading">
   <div class="section-heading">
     <div>
-      <h2 id="settings-transfer-heading">Your settings, ready to travel</h2>
-      <p>Export or replace your JSON rules, profiles, and preferences.</p>
+      <h2 id="settings-transfer-heading">Import & export</h2>
+      <p>Back up your routing rules, profiles, and preferences as a settings file.</p>
     </div>
   </div>
   <div class="panel feature-fields">
@@ -289,3 +286,9 @@
       >{/if}
   </div>
 </section>
+
+<style>
+  .automation-examples { margin-top: 16px; padding: 16px 20px; }
+  .automation-examples > summary { min-height: 32px; padding: 4px 0; cursor: pointer; color: var(--text-primary); font-size: 14px; font-weight: 600; }
+  .automation-examples .integration-examples { margin-top: 12px; }
+</style>
