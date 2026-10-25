@@ -10,7 +10,8 @@ for browser in chrome firefox; do
   mkdir -p "$folder"
   cp background.js contentScript.js icon16.png icon48.png icon128.png icon256.png "$folder/"
   cp "manifest-$browser.json" "$folder/manifest.json"
-  (cd "$folder" && zip -q "$staging/$browser.zip" background.js contentScript.js icon16.png icon48.png icon128.png icon256.png manifest.json)
+  cp ../../LICENSE "$folder/LICENSE"
+  (cd "$folder" && zip -q "$staging/$browser.zip" background.js contentScript.js icon16.png icon48.png icon128.png icon256.png manifest.json LICENSE)
   mv -f "$staging/$browser.zip" "build/$browser.zip"
 done
 printf 'Built fresh Waystile browser extensions in %s/build\n' "$(pwd)"
