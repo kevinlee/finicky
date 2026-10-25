@@ -1,6 +1,24 @@
 # Build and runtime verification
 
-Updated October 24, 2026. Finicky Plus uses the tested `d6ae002` Go binary. Its existing app bundle received only the two missing Services context dictionaries, then was re-signed and installed without a Go rebuild. Finicky Actions build 5 is installed with the Share presentation metadata, bounded activation predicate, and rich/plain-text loader corrections. Both apps have Apple Development signatures; the companion and all three embedded extensions verify under the same team. This is a development build, not an App Store release or a certified replacement for Velja. Automated checks, live acceptance, and unverified features are recorded separately below.
+Updated October 25, 2026. The installed main app is signed build `d50b393`, with the local shadow-learning baseline described in [LEARNING.md](LEARNING.md). Learning is enabled on this Mac at the user's request. Finicky Actions build 5 is unchanged. This remains a development build; the results below distinguish current checks from earlier native-integration acceptance.
+
+## October 25 learning build
+
+- Full native `go test -race -count=1 ./...` passed, including 19 learning-package tests and six application-integration groups. The main-package race suite was rerun after the final hidden-duplicate exclusion. Temporal cutoffs, future-label invariance, corrections, profile lifecycle deletion, storage retention, privacy exclusions, and stable identities are covered.
+- Config API type checks and all 87 tests passed. Settings checks and all 36 tests passed; the only Svelte warning is the pre-existing initial-value warning in `Rules.svelte`. Both production web builds and the arm64 application build passed. All ten browser-extension tests passed.
+- The installed app's Apple Development signature verifies with `codesign --verify --deep --strict`. Its reported binary commit is `d50b393`. Read-only LaunchServices checks resolve HTTP, HTTPS, and `finicky-plus` to `/Applications/Finicky Plus.app`; a routing probe preserved the Personal fallback and tracking cleanup.
+- Chrome extension 0.4.0 was reloaded and its version/enabled state verified in Personal, Work, and Academic. No extension permissions were expanded. Existing open webpages may need reloading to receive the changed Option-click content script.
+- Live Chrome toolbar → native chooser → explicit Personal selection created exactly one sanitized `example.com` request and a neutral confirmation. The Learning panel displayed the choice and correctly abstained for insufficient history. Correcting it to Work created version two with explicit-correction provenance without reopening the page.
+- A second live chooser action selected a private Personal destination and opened a Chrome Incognito window. It added no learning request or feedback. No Incognito extension access was enabled; source-private handling has automated coverage, not a separate live private-source extension test.
+- The learning store contained neither the original URL nor the QA query; its file and directory modes were 0600 and 0700. The exact QA request and its corrections were removed through the store deletion API while the router was stopped. The final store is empty and learning remains on. Other settings are semantically unchanged; normal native serialization omitted false values and emitted null for the inherited service list.
+- Native UI checks caught and fixed false settings-conflict and dirty-state banners caused by metadata omissions, null fields, and JSON property order in save messages. The isolated preview preserved unapplied routing edits during a learning toggle. The final installed build passed clean-state off/on toggles with Apply remaining disabled and no conflict banner.
+- A synthetic 2,000-request/2,000-confirmation, 2.63 MB store measured a median 46 ms for observation plus confirmation after browser launch (11 trials), and 661 ms for evaluation (five trials). Evaluation runs on settings refresh, not the link-opening path. These are local measurements, not a latency guarantee or routing-quality result.
+
+Predictions never choose or preselect a destination. There is no GNN or automatic learned routing in this build, and no real-user accuracy claim. Browser privacy is reported by the integration, not authenticated by the custom URL scheme. Rollback copies of the previous app, extension, and settings are retained locally under `apps/finicky/build/qa-learning-20261025/`.
+
+## October 24 native-integration baseline
+
+The prior QA used the `d6ae002` Go binary. Its app bundle received the missing Services context dictionaries and was re-signed. Finicky Actions build 5 included Share presentation metadata, a bounded activation predicate, and rich/plain-text loader corrections. The companion and its three embedded extensions verify under the same Apple signing team. These earlier integration results were not all repeated for the learning update.
 
 ## Automated checks
 
