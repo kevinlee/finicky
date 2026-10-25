@@ -384,11 +384,11 @@ static NSImage *CurrentMenuIcon(void) {
     free(windowTitle);
 }
 
-- (bool)application:(NSApplication *)application willContinueUserActivityWithType:(NSString *)userActivityType {
+- (BOOL)application:(NSApplication *)application willContinueUserActivityWithType:(NSString *)userActivityType {
     return [userActivityType isEqualToString:NSUserActivityTypeBrowsingWeb];
 }
 
-- (bool)application:(NSApplication *)application continueUserActivity:(NSUserActivity *)userActivity restorationHandler:(void (^)(NSArray<id<NSUserActivityRestoring>> * _Nullable))restorationHandler {
+- (BOOL)application:(NSApplication *)application continueUserActivity:(NSUserActivity *)userActivity restorationHandler:(void (^)(NSArray<id<NSUserActivityRestoring>> * _Nullable))restorationHandler {
     if (![userActivity.activityType isEqualToString:NSUserActivityTypeBrowsingWeb]) {
         return false;
     }

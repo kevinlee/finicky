@@ -80,7 +80,8 @@ static void freeNames(char **names, int count) {
 	free(names);
 }
 
-static BOOL appExists(const char *identifier) {
+// Use int at the cgo boundary: Objective-C BOOL differs on Intel and arm64.
+static int appExists(const char *identifier) {
 	@autoreleasepool {
 		NSString *value = [NSString stringWithUTF8String:identifier];
 		if ([value hasPrefix:@"/"]) {
@@ -102,7 +103,7 @@ import (
 func AppExists(identifier string) bool {
 	value := C.CString(identifier)
 	defer C.free(unsafe.Pointer(value))
-	return bool(C.appExists(value))
+	return C.appExists(value) != 0
 }
 
 // GetInstalledBrowsers returns the display names of all apps registered to
