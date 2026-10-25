@@ -1,8 +1,14 @@
 #import "window.h"
+#import "navigation_policy.h"
 
 static WindowController* windowController = nil;
 static NSString* htmlContent = nil;
 static NSMutableDictionary* fileContents = nil;
+
+static BOOL IsSettingsFrame(WKFrameInfo *frame) {
+    return frame && FinickyIsSettingsFrame(frame.isMainFrame, frame.request.URL,
+        frame.securityOrigin.protocol, frame.securityOrigin.host, frame.securityOrigin.port);
+}
 
 void SetHTMLContent(const char* content) {
     if (content) {
@@ -70,7 +76,7 @@ void SetFileContentWithLength(const char* path, const char* content, size_t leng
                                                 NSWindowStyleMaskResizable
                                          backing:NSBackingStoreBuffered
                                            defer:NO];
-    [window setTitle:@"Finicky Plus"];
+    [window setTitle:@"Waystile"];
     [window center];
     [window setReleasedWhenClosed:NO];
     [window setBackgroundColor:[NSColor colorWithCalibratedWhite:0.1 alpha:1.0]];
@@ -108,12 +114,11 @@ void SetFileContentWithLength(const char* path, const char* content, size_t leng
     webView.wantsLayer = true;
     webView.layer.backgroundColor = [NSColor colorWithCalibratedWhite:0.1 alpha:1.0].CGColor;
 
-    [webView.configuration.preferences setValue:@true forKey:@"developerExtrasEnabled"];
-
-    // Load HTML content
+    // Use a real bundled document URL so navigation and bridge checks have one
+    // explicit origin, including during startup. No about:blank exception is
+    // needed for loadHTMLString's synthetic document.
     if (htmlContent) {
-        NSURL* baseURL = [NSURL URLWithString:@"finicky-assets://local/"];
-        [webView loadHTMLString:htmlContent baseURL:baseURL];
+        [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"finicky-assets://local/index.html"]]];
     } else {
         NSLog(@"Warning: HTML content not set");
     }
@@ -157,12 +162,12 @@ void SetFileContentWithLength(const char* path, const char* content, size_t leng
     NSString *js = [NSString stringWithFormat:@"finicky.receiveMessage(\"%@\")", escapedMessage];
 
     if ([NSThread isMainThread]) {
-        if (webView && !webView.loading) {
+        if (webView && !webView.loading && FinickyIsSettingsDocumentURL(webView.URL)) {
             [webView evaluateJavaScript:js completionHandler:nil];
         }
     } else {
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (webView && !webView.loading) {
+            if (webView && !webView.loading && FinickyIsSettingsDocumentURL(webView.URL)) {
                 [webView evaluateJavaScript:js completionHandler:nil];
             }
         });
@@ -171,8 +176,13 @@ void SetFileContentWithLength(const char* path, const char* content, size_t leng
 
 - (void)userContentController:(WKUserContentController *)userContentController
       didReceiveScriptMessage:(WKScriptMessage *)message {
-    // Handle messages from JavaScript here
-    NSLog(@"Received message from WebView: %@", message.body);
+    // Never accept settings commands from a subframe or another origin, and
+    // never log the body: it can contain URLs, routing rules and local settings.
+    if (message.webView != webView || userContentController != webView.configuration.userContentController ||
+        ![message.name isEqualToString:@"finicky"] || !IsSettingsFrame(message.frameInfo) ||
+        !FinickyIsSettingsDocumentURL(webView.URL)) {
+        return;
+    }
 
     // Convert the message body to JSON string and forward to Go
     if ([message.body isKindOfClass:[NSString class]]) {
@@ -194,17 +204,16 @@ void SetFileContentWithLength(const char* path, const char* content, size_t leng
 
 - (void)webView:(WKWebView *)webView startURLSchemeTask:(id<WKURLSchemeTask>)urlSchemeTask {
     NSURLRequest *request = urlSchemeTask.request;
+    if (!FinickyIsBundledAssetURL(request.URL)) {
+        [urlSchemeTask didFailWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorUnsupportedURL userInfo:nil]];
+        return;
+    }
     NSString *path = request.URL.path;
     if ([path hasPrefix:@"/"]) {
         path = [path substringFromIndex:1];
     }
 
-    // Remove 'local/' prefix if present
-    if ([path hasPrefix:@"local/"]) {
-        path = [path substringFromIndex:6];
-    }
-
-    id content = fileContents[path];
+    id content = [path isEqualToString:@"index.html"] ? htmlContent : fileContents[path];
     if (content) {
         NSData *data;
         if ([content isKindOfClass:[NSData class]]) {
@@ -214,7 +223,9 @@ void SetFileContentWithLength(const char* path, const char* content, size_t leng
         }
 
         NSString *mimeType = @"text/plain";
-        if ([path hasSuffix:@".css"]) {
+        if ([path hasSuffix:@".html"]) {
+            mimeType = @"text/html";
+        } else if ([path hasSuffix:@".css"]) {
             mimeType = @"text/css";
         } else if ([path hasSuffix:@".js"]) {
             mimeType = @"application/javascript";
@@ -225,13 +236,12 @@ void SetFileContentWithLength(const char* path, const char* content, size_t leng
         NSURLResponse *response = [[NSURLResponse alloc] initWithURL:request.URL
                                                           MIMEType:mimeType
                                              expectedContentLength:data.length
-                                                  textEncodingName:nil];
+                                                  textEncodingName:[content isKindOfClass:[NSString class]] ? @"utf-8" : nil];
 
         [urlSchemeTask didReceiveResponse:response];
         [urlSchemeTask didReceiveData:data];
         [urlSchemeTask didFinish];
     } else {
-        NSLog(@"Asset not found: %@", path);
         [urlSchemeTask didFailWithError:[NSError errorWithDomain:NSURLErrorDomain
                                                           code:NSURLErrorResourceUnavailable
                                                       userInfo:nil]];
@@ -244,8 +254,9 @@ void SetFileContentWithLength(const char* path, const char* content, size_t leng
 
 #pragma mark - WKNavigationDelegate
 
-- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
-    // Notify Go that the window is ready to receive messages
+- (void)webView:(WKWebView *)finishedWebView didFinishNavigation:(WKNavigation *)navigation {
+    if (finishedWebView != webView || !FinickyIsSettingsDocumentURL(finishedWebView.URL)) return;
+    // Notify Go only after the bundled settings document is ready.
     extern void WindowIsReady(void);
     WindowIsReady();
 }
@@ -253,22 +264,17 @@ void SetFileContentWithLength(const char* path, const char* content, size_t leng
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
     NSURL *url = navigationAction.request.URL;
 
-    // Handle finicky-assets:// URLs internally
-    if ([url.scheme isEqualToString:@"finicky-assets"]) {
-        decisionHandler(WKNavigationActionPolicyAllow);
-        return;
-    }
-
-    // If it's a regular link click (not a page load)
-    if (navigationAction.navigationType == WKNavigationTypeLinkActivated) {
-        // Open the URL in the default browser
+    FinickySettingsNavigation policy = FinickySettingsNavigationPolicy(url,
+        navigationAction.targetFrame.isMainFrame,
+        navigationAction.navigationType == WKNavigationTypeLinkActivated,
+        IsSettingsFrame(navigationAction.sourceFrame));
+    decisionHandler(policy == FinickySettingsNavigationAllow ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
+    if (policy == FinickySettingsNavigationOpenExternal) {
+        // Explicit HTTP(S) clicks, including target=_blank links, leave this
+        // privileged web view. Router deep links are handled by the app's
+        // existing Apple event path, never by loading them as settings pages.
         [[NSWorkspace sharedWorkspace] openURL:url];
-        decisionHandler(WKNavigationActionPolicyCancel);
-        return;
     }
-
-    // Allow all other navigation
-    decisionHandler(WKNavigationActionPolicyAllow);
 }
 
 // Add new method to handle window close

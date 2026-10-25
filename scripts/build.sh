@@ -32,6 +32,10 @@ copy_assets() {
     local APP_NAME=$1
     cp packages/config-api/dist/finicky.d.ts apps/finicky/build/${APP_NAME}/Contents/Resources/finicky.d.ts
     rsync -a --exclude='menu.iconset' apps/finicky/assets/ apps/finicky/build/${APP_NAME}/Contents/
+    # Notices are resources, not executable code in the bundle's Contents root.
+    mv -f "apps/finicky/build/${APP_NAME}/Contents/UI-THIRD-PARTY-NOTICES.txt" \
+        "apps/finicky/build/${APP_NAME}/Contents/Resources/UI-THIRD-PARTY-NOTICES.txt"
+    cp LICENSE "apps/finicky/build/${APP_NAME}/Contents/Resources/Finicky-LICENSE.txt"
 }
 
 build_arch() {

@@ -190,7 +190,7 @@ func handleTestUrl(msg map[string]interface{}) {
 		return
 	}
 
-	slog.Debug("Forwarding test URL request", "url", url)
+	slog.Debug("Forwarding test URL request")
 
 	if TestUrlHandler != nil {
 		var opener *resolver.OpenerInfo
