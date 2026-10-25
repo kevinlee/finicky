@@ -56,7 +56,8 @@ export function reconcileLearningRules(
   return {
     ...state,
     draft: withLearningEnabled({ ...state.draft, ...(path ? { path } : {}) }, enabled),
-    baseline: withLearningEnabled({ ...next, ...(path ? { path } : {}) }, enabled),
+    // Retain local property order: the editor's dirty check compares JSON text.
+    baseline: withLearningEnabled({ ...state.baseline, ...(path ? { path } : {}) }, enabled),
     incoming: state.incoming ? withLearningEnabled(state.incoming, enabled) : null,
   };
 }

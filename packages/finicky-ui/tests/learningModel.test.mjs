@@ -102,10 +102,32 @@ test("first learning save normalizes native null defaults without inventing pend
   assert.notEqual(state, null);
   assert.equal(state.externalChange, false);
   assert.deepEqual(state.draft, state.baseline);
+  assert.equal(JSON.stringify(state.draft), JSON.stringify(state.baseline));
   // An explicit empty service list means none, so it remains a genuine difference.
   assert.equal(reconcileLearningRules({ draft: baseline, baseline, incoming: null, externalChange: false }, {
     ...next, features: { learningEnabled: true, nativeAppServices: [] },
   }), null);
+});
+
+test("a clean editor stays clean when native learning saves reorder object keys", () => {
+  const baseline = normalizeRulesFile({
+    path: "~/rules.json",
+    features: { nativeAppServices: null, learningEnabled: false },
+    profiles: [],
+    rules: [],
+    defaultBrowser: "Chrome",
+  });
+  const next = normalizeRulesFile({
+    defaultBrowser: "Chrome",
+    rules: [],
+    profiles: [],
+    features: { learningEnabled: true, nativeAppServices: null },
+  });
+  const state = reconcileLearningRules({ draft: baseline, baseline, incoming: null, externalChange: false }, next);
+  assert.notEqual(state, null);
+  assert.equal(state.externalChange, false);
+  assert.equal(state.draft.features.learningEnabled, true);
+  assert.equal(JSON.stringify(state.draft), JSON.stringify(state.baseline));
 });
 
 test("learning updates preserve genuine conflicts and reject unrelated incoming changes", () => {
