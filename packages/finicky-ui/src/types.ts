@@ -176,10 +176,21 @@ declare global {
 
 export interface UpdateInfo {
   version: string;
+  latestCommit?: string;
+  publishedAt?: string;
   hasUpdate: boolean;
   updateCheckEnabled: boolean;
   downloadUrl: string;
   releaseUrl: string;
+  source?: "icloud" | "github" | "api" | string;
+  canInstallAutomatically?: boolean;
+  archivePendingDownload?: boolean;
+  includesCompanion?: boolean;
+  includesChromeExtension?: boolean;
+  notes?: string;
+  currentVersion?: string;
+  currentCommit?: string;
+  currentBuildDate?: string;
 }
 
 export interface ConfigInfo {

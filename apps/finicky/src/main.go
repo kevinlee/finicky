@@ -10,6 +10,7 @@ import "C"
 
 import (
 	_ "embed"
+	"encoding/json"
 	"finicky/browser"
 	"finicky/browseraccess"
 	"finicky/config"
@@ -86,6 +87,8 @@ func main() {
 	previewPtr := flag.Bool("preview", false, "Preview settings without claiming default-browser status, stopping other instances, or opening browsers")
 	testURLPtr := flag.String("test-url", "", "Resolve a URL and print JSON without launching")
 	promptPtr := flag.Bool("prompt", false, "Show the picker for positional URLs")
+	publishUpdatePtr := flag.Bool("publish-update", false, "Publish the installed signed Waystile build to iCloud Drive and exit")
+	installUpdatePtr := flag.Bool("install-update", false, "Verify and install the latest Waystile build from iCloud Drive and exit")
 	flag.Parse()
 
 	// Use the parsed values
@@ -120,6 +123,28 @@ func main() {
 	commitHash, buildDate := version.GetBuildInfo()
 	slog.Info("Starting Waystile", "version", currentVersion)
 	slog.Debug("Build info", "buildDate", buildDate, "commitHash", commitHash)
+
+	if *publishUpdatePtr {
+		manifest, err := version.PublishCloudUpdate(version.PublishOptions{})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to publish update: %v\n", err)
+			os.Exit(1)
+		}
+		out, _ := json.MarshalIndent(manifest, "", "  ")
+		fmt.Println(string(out))
+		os.Exit(0)
+	}
+
+	if *installUpdatePtr {
+		res, err := version.InstallCloudUpdate(version.InstallOptions{})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to install update: %v\n", err)
+			os.Exit(1)
+		}
+		out, _ := json.MarshalIndent(res, "", "  ")
+		fmt.Println(string(out))
+		os.Exit(0)
+	}
 
 	go func() {
 		if previewMode || dryRun || *testURLPtr != "" {
@@ -431,6 +456,10 @@ func GetCurrentConfigPath() *C.char {
 }
 
 func checkForUpdates() {
+	runUpdateCheck(false)
+}
+
+func runUpdateCheck(force bool) {
 	if previewMode {
 		return
 	}
@@ -440,7 +469,7 @@ func checkForUpdates() {
 		runtime = vm.Runtime()
 	}
 
-	releaseInfo, updateCheckEnabled, err := version.CheckForUpdatesIfEnabled(runtime)
+	releaseInfo, updateCheckEnabled, err := version.CheckForUpdatesWithOptions(runtime, force)
 	vmMu.Unlock()
 	if err != nil {
 		slog.Error("Error checking for updates", "error", err)
@@ -452,16 +481,30 @@ func checkForUpdates() {
 	}
 
 	if updateInfo.ReleaseInfo != nil && updateInfo.ReleaseInfo.HasUpdate {
-		slog.Info("New version is available", "version", updateInfo.ReleaseInfo.LatestVersion)
+		slog.Info("New version is available", "version", updateInfo.ReleaseInfo.LatestVersion, "commit", updateInfo.ReleaseInfo.LatestCommit, "source", updateInfo.ReleaseInfo.Source)
 	}
+
+	currentVersion := version.GetCurrentVersion()
+	currentCommit, currentBuildDate := version.GetBuildInfo()
 
 	if updateInfo.ReleaseInfo != nil {
 		window.SendMessageToWebView("updateInfo", map[string]interface{}{
-			"version":            updateInfo.ReleaseInfo.LatestVersion,
-			"hasUpdate":          updateInfo.ReleaseInfo.HasUpdate,
-			"updateCheckEnabled": updateInfo.UpdateCheckEnabled,
-			"downloadUrl":        updateInfo.ReleaseInfo.DownloadUrl,
-			"releaseUrl":         updateInfo.ReleaseInfo.ReleaseUrl,
+			"version":                 updateInfo.ReleaseInfo.LatestVersion,
+			"latestCommit":            updateInfo.ReleaseInfo.LatestCommit,
+			"publishedAt":             updateInfo.ReleaseInfo.PublishedAt,
+			"hasUpdate":               updateInfo.ReleaseInfo.HasUpdate,
+			"updateCheckEnabled":      updateInfo.UpdateCheckEnabled,
+			"downloadUrl":             updateInfo.ReleaseInfo.DownloadUrl,
+			"releaseUrl":              updateInfo.ReleaseInfo.ReleaseUrl,
+			"source":                  updateInfo.ReleaseInfo.Source,
+			"canInstallAutomatically": updateInfo.ReleaseInfo.CanInstallAutomatically,
+			"archivePendingDownload":  updateInfo.ReleaseInfo.ArchivePendingDownload,
+			"includesCompanion":       updateInfo.ReleaseInfo.IncludesCompanion,
+			"includesChromeExtension": updateInfo.ReleaseInfo.IncludesChromeExtension,
+			"notes":                   updateInfo.ReleaseInfo.Notes,
+			"currentVersion":          currentVersion,
+			"currentCommit":           currentCommit,
+			"currentBuildDate":        currentBuildDate,
 		})
 	} else {
 		window.SendMessageToWebView("updateInfo", map[string]interface{}{
@@ -470,6 +513,9 @@ func checkForUpdates() {
 			"updateCheckEnabled": updateInfo.UpdateCheckEnabled,
 			"downloadUrl":        "",
 			"releaseUrl":         "",
+			"currentVersion":     currentVersion,
+			"currentCommit":      currentCommit,
+			"currentBuildDate":   currentBuildDate,
 		})
 	}
 }

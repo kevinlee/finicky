@@ -107,10 +107,12 @@ func setupSettingsSync() {
 	service := activeSettingsSync
 	go func() {
 		service.perform(map[string]interface{}{"type": "syncNow"}, false)
+		checkForUpdates()
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
 			service.perform(map[string]interface{}{"type": "syncNow"}, false)
+			checkForUpdates()
 		}
 	}()
 }

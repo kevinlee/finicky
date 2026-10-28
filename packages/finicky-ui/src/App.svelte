@@ -140,6 +140,9 @@
   let version = "";
   let config: ConfigInfo = { configPath: "" };
   let updateInfo: UpdateInfo | null = null;
+  let checkingForUpdates = false;
+  let publishingUpdate = false;
+  let installingUpdate = false;
   let logs: LogEntry[] = [];
   let history: HistoryEntry[] = [];
   let historyLoaded = false;
@@ -378,6 +381,42 @@
         break;
       case "updateInfo":
         updateInfo = message.message;
+        if ((!version || version === "dev") && updateInfo?.currentVersion && updateInfo.currentVersion !== "dev") {
+          version = updateInfo.currentVersion;
+        }
+        break;
+      case "updateCheckResult":
+        checkingForUpdates = false;
+        if (message.message?.error || message.message?.success === false) {
+          toast.show("Update check failed", "error", message.message?.error);
+        } else if (updateInfo?.hasUpdate) {
+          toast.show(
+            `Waystile ${updateInfo.version}${updateInfo.latestCommit ? ` (${updateInfo.latestCommit})` : ""} is available`,
+            "info",
+          );
+        } else {
+          toast.show("Waystile is up to date", "success");
+        }
+        break;
+      case "publishUpdateResult":
+        publishingUpdate = false;
+        if (message.message?.success) {
+          toast.show(
+            "Build published to iCloud Drive",
+            "success",
+            `Waystile ${message.message.version || ""}${message.message.commitHash ? ` (${message.message.commitHash})` : ""} is ready for your other Macs.`,
+          );
+        } else {
+          toast.show("Could not publish build to iCloud", "error", message.message?.error);
+        }
+        break;
+      case "installUpdateResult":
+        installingUpdate = false;
+        if (message.message?.success) {
+          toast.show("Update installed — restarting Waystile…", "success");
+        } else {
+          toast.show("Update could not be installed", "error", message.message?.error);
+        }
         break;
       case "installedBrowsers":
         installedBrowsers = message.message || [];
@@ -962,6 +1001,21 @@
     requestingBrowserAccess = true;
     send({ type: "grantBrowserAccess" });
   }
+  function checkUpdates() {
+    if (checkingForUpdates) return;
+    checkingForUpdates = true;
+    send({ type: "checkForUpdates" });
+  }
+  function publishUpdate() {
+    if (publishingUpdate || installingUpdate) return;
+    publishingUpdate = true;
+    send({ type: "publishUpdate" });
+  }
+  function installUpdate() {
+    if (installingUpdate || publishingUpdate) return;
+    installingUpdate = true;
+    send({ type: "installUpdate" });
+  }
   function importSettings(json: string) {
     if (dirty || saving || importing || syncView.pending) return;
     importing = true;
@@ -1087,6 +1141,32 @@
       </div>{/if}
     </header>
     <div class="page-content" inert={saving}>
+      {#if updateInfo?.hasUpdate}<div class="notice-banner" role="status">
+          <Icon name="sync" size={16} /><span
+            ><strong>Waystile {updateInfo.version}{updateInfo.latestCommit ? ` (${updateInfo.latestCommit})` : ""} is available.</strong>
+            {#if updateInfo.source === "icloud"}
+              {updateInfo.archivePendingDownload
+                ? " iCloud Drive is downloading the update package…"
+                : " Ready to install from iCloud Drive."}
+            {/if}</span
+          >
+          <div class="inline-actions">
+            {#if updateInfo.canInstallAutomatically}
+              {#if updateInfo.archivePendingDownload}
+                <button class="button small secondary" disabled={checkingForUpdates} onclick={checkUpdates}>
+                  {checkingForUpdates ? "Checking…" : "Check download"}
+                </button>
+              {:else}
+                <button class="button small primary" disabled={installingUpdate || publishingUpdate || saving || importing} onclick={installUpdate}>
+                  {installingUpdate ? "Updating…" : "Update & Relaunch"}
+                </button>
+              {/if}
+            {:else}
+              <a href={updateInfo.downloadUrl} target="_blank" rel="noopener noreferrer" class="button small primary">Download</a>
+              <a href={updateInfo.releaseUrl} target="_blank" rel="noopener noreferrer" class="button small secondary">Release notes</a>
+            {/if}
+          </div>
+        </div>{/if}
       {#if externalChange}<div class="notice-banner warning" role="alert">
           <Icon name="info" size={16} /><span
             >Settings changed outside this window. Reload before making more changes.</span
@@ -1604,12 +1684,19 @@
           blocked={syncBlocked}
           error={syncView.error}
           jsConfig={Boolean(config.isJSConfig)}
+          {updateInfo}
+          {checkingForUpdates}
+          {publishingUpdate}
+          {installingUpdate}
           onDraftChange={(dirty) => (syncMappingDirty = dirty)}
           onRefresh={() => syncRequest({ type: "getSync" })}
           onEnabled={(enabled) => syncRequest({ type: "enableSync", enabled })}
           onSync={() => syncRequest({ type: "syncNow" })}
           onSaveBindings={(bindings) => syncRequest({ type: "saveSyncBindings", bindings })}
           onResolve={(choice, revision) => syncRequest({ type: "resolveSync", choice, ...(revision ? { revision } : {}) })}
+          onCheckUpdates={checkUpdates}
+          onPublishUpdate={publishUpdate}
+          onInstallUpdate={installUpdate}
         />
       {:else if page === "integrations"}
         <Integrations
@@ -1627,7 +1714,16 @@
           <LogViewer messageBuffer={logs} onClearLogs={() => (logs = [])} />
         </div>
       {:else if page === "about"}<div class="legacy-page">
-          <About {version} />
+          <About
+            {version}
+            {updateInfo}
+            {checkingForUpdates}
+            {publishingUpdate}
+            {installingUpdate}
+            onCheckUpdates={checkUpdates}
+            onPublishUpdate={publishUpdate}
+            onInstallUpdate={installUpdate}
+          />
         </div>{/if}
     </div>
     {#if showChangesFooter}<footer class="changes-footer" aria-label="Apply settings changes">

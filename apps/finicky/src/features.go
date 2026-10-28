@@ -17,6 +17,7 @@ import (
 	"finicky/rules"
 	"finicky/urlrequest"
 	"finicky/util"
+	"finicky/version"
 	"finicky/window"
 	"fmt"
 	"log/slog"
@@ -513,6 +514,48 @@ func setupFeatureBridge() {
 		case "getIntegrations":
 			exe, _ := os.Executable()
 			window.SendMessageToWebView("integrations", map[string]string{"appPath": exe, "bundleId": "com.kevinlee.finicky", "scheme": "finicky-plus"})
+		case "checkForUpdates":
+			go func() {
+				runUpdateCheck(true)
+				sendOutcome("updateCheckResult", nil)
+			}()
+		case "publishUpdate":
+			if previewMode || dryRun {
+				sendOutcome("publishUpdateResult", errors.New("publishing updates is unavailable in preview mode"))
+				return true
+			}
+			notes, _ := msg["notes"].(string)
+			go func() {
+				manifest, err := version.PublishCloudUpdate(version.PublishOptions{Notes: notes})
+				if err != nil {
+					sendOutcome("publishUpdateResult", err)
+					return
+				}
+				runUpdateCheck(false)
+				window.SendMessageToWebView("publishUpdateResult", map[string]interface{}{
+					"success":    true,
+					"version":    manifest.Version,
+					"commitHash": manifest.CommitHash,
+				})
+			}()
+		case "installUpdate":
+			if previewMode || dryRun {
+				sendOutcome("installUpdateResult", errors.New("installing updates is unavailable in preview mode"))
+				return true
+			}
+			go func() {
+				res, err := version.InstallCloudUpdate(version.InstallOptions{})
+				if err != nil {
+					sendOutcome("installUpdateResult", err)
+					return
+				}
+				window.SendMessageToWebView("installUpdateResult", map[string]interface{}{
+					"success":    true,
+					"version":    res.Version,
+					"commitHash": res.CommitHash,
+				})
+				_ = version.RelaunchInstalledApp(res.InstalledAppPath)
+			}()
 		default:
 			return false
 		}

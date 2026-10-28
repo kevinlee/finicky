@@ -2,18 +2,25 @@
   import { onDestroy, onMount } from "svelte";
   import Icon from "../components/StudioIcon.svelte";
   import { bindingForFavorite, equalBindings, isChromiumBrowser, reconcileSyncMappings, syncBindingForSave, syncMappingErrors, syncResolution, syncStatusLabels, updateSyncBindingDraft } from "../lib/syncModel";
-  import type { SyncBinding, SyncSnapshot } from "../types";
+  import type { SyncBinding, SyncSnapshot, UpdateInfo } from "../types";
 
   export let snapshot: SyncSnapshot | null = null;
   export let busy = false;
   export let blocked = false;
   export let error = "";
   export let jsConfig = false;
+  export let updateInfo: UpdateInfo | null = null;
+  export let checkingForUpdates = false;
+  export let publishingUpdate = false;
+  export let installingUpdate = false;
   export let onRefresh: () => void;
   export let onEnabled: (enabled: boolean) => void;
   export let onSync: () => void;
   export let onSaveBindings: (bindings: Record<string, SyncBinding>) => void;
   export let onResolve: (choice: "local" | "remote", revision?: string) => void;
+  export let onCheckUpdates: () => void = () => {};
+  export let onPublishUpdate: () => void = () => {};
+  export let onInstallUpdate: () => void = () => {};
   export let onDraftChange: (dirty: boolean) => void = () => {};
   let mappingDraft: Record<string, SyncBinding> = {};
   let mappingBaseline: Record<string, SyncBinding> = {};
@@ -167,6 +174,69 @@
         </form>
       {/if}
     </section>
+    <section class="feature-section" aria-labelledby="sync-app-updates-heading">
+      <div class="section-heading">
+        <div>
+          <h2 id="sync-app-updates-heading">App updates across Macs</h2>
+          <p>Publish this Mac’s signed Waystile build to iCloud Drive, or install a newer build published from another Mac.</p>
+        </div>
+      </div>
+      <div class="panel sync-app-update-panel">
+        <div class="sync-status-heading">
+          <span class="sync-state-icon" class:success={Boolean(updateInfo && !updateInfo.hasUpdate && updateInfo.version)} class:needs-attention={Boolean(updateInfo?.hasUpdate)}>
+            <Icon name={updateInfo?.hasUpdate ? "sync" : "check"} size={20} />
+          </span>
+          <div>
+            <h3>
+              {#if updateInfo?.hasUpdate}
+                Waystile {updateInfo.version}{updateInfo.latestCommit ? ` (${updateInfo.latestCommit})` : ""} is ready to install
+              {:else if updateInfo?.version}
+                Up to date · Waystile {updateInfo.currentVersion || updateInfo.version}{updateInfo.currentCommit && updateInfo.currentCommit !== "dev" ? ` (${updateInfo.currentCommit})` : ""}
+              {:else}
+                This Mac · Waystile {updateInfo?.currentVersion || "0.1.0"}{updateInfo?.currentCommit && updateInfo.currentCommit !== "dev" ? ` (${updateInfo.currentCommit})` : ""}
+              {/if}
+            </h3>
+            <p>
+              {#if updateInfo?.hasUpdate && updateInfo?.source === "icloud"}
+                {updateInfo.archivePendingDownload
+                  ? "iCloud Drive is downloading the update archive to this Mac…"
+                  : "Verified package in iCloud Drive includes Waystile, Waystile Actions, and the Chrome extension."}
+              {:else if updateInfo?.publishedAt}
+                Latest iCloud build published {displayTime(updateInfo.publishedAt)}
+              {:else}
+                Publish from the Mac where you build Waystile so your other Macs get a one-click update prompt.
+              {/if}
+            </p>
+          </div>
+        </div>
+        <div class="inline-actions">
+          {#if updateInfo?.hasUpdate && updateInfo?.canInstallAutomatically}
+            <button
+              class="button small primary"
+              disabled={installingUpdate || publishingUpdate || updateInfo.archivePendingDownload}
+              onclick={onInstallUpdate}
+            >
+              {installingUpdate ? "Updating…" : "Update & Relaunch"}
+            </button>
+          {/if}
+          <button
+            class="button small secondary"
+            disabled={checkingForUpdates || installingUpdate || publishingUpdate}
+            onclick={onCheckUpdates}
+          >
+            {checkingForUpdates ? "Checking…" : "Check for updates"}
+          </button>
+          <button
+            class="button small secondary"
+            disabled={publishingUpdate || installingUpdate}
+            onclick={onPublishUpdate}
+          >
+            {publishingUpdate ? "Publishing…" : "Publish this Mac’s build"}
+          </button>
+        </div>
+      </div>
+    </section>
+
     <details class="sync-details panel">
       <summary><Icon name="lock" size={16} />What syncs & privacy</summary>
       <div class="sync-details-content">
@@ -181,6 +251,8 @@
 
 <style>
   .sync-settings { margin-top: 20px; }
+  .sync-app-update-panel { padding: 20px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; }
+  .sync-app-update-panel p { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
   .sync-status { padding: 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; gap: 20px; }
   .sync-status-heading { display: flex; align-items: flex-start; gap: 12px; }
   .sync-state-icon, .sync-profile-mark { display: grid; place-items: center; flex-shrink: 0; width: 36px; height: 36px; border-radius: 8px; background: var(--inset-bg); color: var(--text-secondary); }
