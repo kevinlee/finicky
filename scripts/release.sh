@@ -1,17 +1,32 @@
 #!/bin/bash
 # Sign and notarize a prepared app with existing credentials; never installs it.
+# RELEASE_VERSION is the tag version without "v", for example 0.1.0-beta.2.
+# Its numeric version must match the app's CFBundleShortVersionString.
 set -euo pipefail
 phase=${1:-}
 app=${2:-}
 release_dir=${3:-}
-if [[ "$phase" != sign && "$phase" != sign-companion && "$phase" != notarize ]] || [[ ! -d "$app/Contents" ]] || [[ -z "$release_dir" ]]; then
-  echo 'Usage: SIGNING_IDENTITY=... release.sh sign|sign-companion APP RELEASE_DIR' >&2
-  echo '       NOTARY_KEYCHAIN_PROFILE=... release.sh notarize APP RELEASE_DIR' >&2
+release_version=${RELEASE_VERSION:-}
+if [[ "$phase" != sign && "$phase" != sign-companion && "$phase" != notarize ]] || [[ ! -d "$app/Contents" ]] || [[ -z "$release_dir" || -z "$release_version" ]]; then
+  echo 'Usage: RELEASE_VERSION=0.1.0-beta.2 SIGNING_IDENTITY=... release.sh sign|sign-companion APP RELEASE_DIR' >&2
+  echo '       RELEASE_VERSION=0.1.0-beta.2 NOTARY_KEYCHAIN_PROFILE=... release.sh notarize APP RELEASE_DIR' >&2
+  echo 'RELEASE_VERSION is required: MAJOR.MINOR.PATCH with an optional prerelease suffix, without a leading v.' >&2
   exit 2
 fi
+version_pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+[[ "$release_version" =~ $version_pattern ]] || { echo 'Invalid RELEASE_VERSION' >&2; exit 2; }
+if [[ "$release_version" == *-* ]]; then
+  IFS=. read -r -a prerelease_identifiers <<< "${release_version#*-}"
+  for part in "${prerelease_identifiers[@]}"; do
+    [[ ! "$part" =~ ^0[0-9]+$ ]] || { echo 'Numeric prerelease identifiers cannot have leading zeroes' >&2; exit 2; }
+  done
+fi
+app=$(cd "$(dirname "$app")" && pwd)/$(basename "$app")
+name=$(basename "$app" .app)
+version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
+[[ "${release_version%%-*}" == "$version" ]] || { echo 'RELEASE_VERSION must match the app marketing version' >&2; exit 2; }
 umask 077
 mkdir -p "$release_dir"
-app=$(cd "$(dirname "$app")" && pwd)/$(basename "$app")
 release_dir=$(cd "$release_dir" && pwd)
 verify_architectures() {
   local bundle="$1" executable arches
@@ -25,9 +40,7 @@ identifier=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Conten
 if [[ "$phase" == sign && "$identifier" != com.kevinlee.finicky ]] || [[ "$phase" == sign-companion && "$identifier" != com.kevinlee.finicky.actions ]]; then
   echo 'The signing phase does not match this app identity' >&2; exit 1
 fi
-name=$(basename "$app" .app)
-version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
-archive="$release_dir/${name// /-}-${version}-beta.1-universal.zip"
+archive="$release_dir/${name// /-}-${release_version}-universal.zip"
 if [[ "$phase" == sign || "$phase" == sign-companion ]]; then
   : "${SIGNING_IDENTITY:?Set an existing Developer ID Application identity}"
   if [[ "$phase" == sign-companion ]]; then

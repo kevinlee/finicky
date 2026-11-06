@@ -39,7 +39,7 @@ scripts/build-integrations.sh
 
 `FINICKY_INTEGRATIONS_OUTPUT` changes the output directory. `CONFIGURATION` defaults to `Release`. Set `FINICKY_REQUIRE_RUNTIME_SIGNING=1` to require a matching Apple signing identity and team during verification. Public Developer ID distribution also needs notarization; development signing alone is insufficient. See the release notes for the exact distributed build and its acceptance status.
 
-The public name and output bundle are **Waystile Actions**. Internal Xcode target names, executable names, extension bundle paths, and identifiers remain stable for compatibility. In particular, the internal products retain the names `Finicky Actions`, `Finicky Safari`, `Open with Finicky Plus`, and `Finicky Focus`; these are not additional apps to install. The public companion is version 0.1.0, build 6.
+The public name and output bundle are **Waystile Actions**. Internal Xcode target names, executable names, extension bundle paths, and identifiers remain stable for compatibility. In particular, the internal products retain the names `Finicky Actions`, `Finicky Safari`, `Open with Finicky Plus`, and `Finicky Focus`; these are not additional apps to install. The public companion is version 0.1.0, build 7.
 
 ## Enable on your Mac
 
@@ -74,9 +74,10 @@ Earlier Apple Development builds passed live checks for Settings, Open URLs, and
 
 Open Clipboard and Copy Clean URL still need live native-action checks. Focus configuration and explicit protocol restoration have been exercised, but actual OS delivery of Focus changes remains unverified. Handoff between Macs and arbitrary browser combinations also need separate acceptance.
 
-The native tests cover URL encoding, destination parameters, web-only dispatch, opening options, bounded Share activation, rich-text link extraction, order/deduplication, fallback, and cancellation. Run them using the preserved internal scheme:
+The native tests cover URL encoding, destination parameters, web-only dispatch, opening options, bounded Share activation, rich-text link extraction, order/deduplication, fallback, and cancellation. Generate the Xcode project if needed and run them using the preserved internal scheme:
 
 ```sh
+xcodegen generate --spec apps/integrations/project.yml --project apps/integrations
 xcodebuild \
   -project apps/integrations/FinickyIntegrations.xcodeproj \
   -scheme FinickyActions \

@@ -64,12 +64,12 @@ type InstallOptions struct {
 }
 
 type InstallResult struct {
-	Version                 string `json:"version"`
-	CommitHash              string `json:"commitHash"`
-	InstalledAppPath        string `json:"installedAppPath"`
-	InstalledCompanionPath  string `json:"installedCompanionPath,omitempty"`
-	UpdatedChromeExtension  bool   `json:"updatedChromeExtension"`
-	BackupDir               string `json:"backupDir,omitempty"`
+	Version                string `json:"version"`
+	CommitHash             string `json:"commitHash"`
+	InstalledAppPath       string `json:"installedAppPath"`
+	InstalledCompanionPath string `json:"installedCompanionPath,omitempty"`
+	UpdatedChromeExtension bool   `json:"updatedChromeExtension"`
+	BackupDir              string `json:"backupDir,omitempty"`
 }
 
 var (
@@ -200,6 +200,14 @@ func IsCloudUpdateNewer(currentVersion, currentCommit, currentBuildDate string, 
 	if currentVersion == "" || currentVersion == "dev" {
 		return false
 	}
+	manifestTime, okManifest := parseBuildTimestamp(m.BuildDate)
+	if !okManifest {
+		manifestTime, okManifest = parseBuildTimestamp(m.PublishedAt)
+	}
+	currentTime, okCurrent := parseBuildTimestamp(currentBuildDate)
+	if okManifest && okCurrent && manifestTime.Before(currentTime) {
+		return false
+	}
 	newerSemver, err := isUpdateAvailable(currentVersion, m.Version)
 	if err != nil {
 		return false
@@ -218,11 +226,6 @@ func IsCloudUpdateNewer(currentVersion, currentCommit, currentBuildDate string, 
 	if strings.EqualFold(m.CommitHash, currentCommit) {
 		return false
 	}
-	manifestTime, okManifest := parseBuildTimestamp(m.BuildDate)
-	if !okManifest {
-		manifestTime, okManifest = parseBuildTimestamp(m.PublishedAt)
-	}
-	currentTime, okCurrent := parseBuildTimestamp(currentBuildDate)
 	if okManifest && okCurrent {
 		return manifestTime.After(currentTime)
 	}
@@ -312,6 +315,11 @@ func verifyBundleSignatureAndArch(bundlePath, expectedBundleID string, allowAdHo
 	}
 	if !allowAdHoc && teamID == "" {
 		return "", fmt.Errorf("%s is ad-hoc signed; an Apple signing Team ID is required", filepath.Base(bundlePath))
+	}
+	if !allowAdHoc {
+		if out, err := exec.Command("codesign", "--verify", "--strict", "--deep", "-R=anchor apple generic", bundlePath).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("%s must have an Apple-issued signing identity: %s", filepath.Base(bundlePath), strings.TrimSpace(string(out)))
+		}
 	}
 	return teamID, nil
 }
@@ -443,12 +451,14 @@ Use the same Apple Account with iCloud Drive enabled. Waystile shares visual rou
 Once Waystile is installed on both Macs:
 - When you build or install an update on one Mac, click **Publish this Mac's build to iCloud** in **Sync** or **About** (or run ` + "`./scripts/publish-update.sh`" + `).
 - Your other Mac will automatically detect the new release in iCloud Drive and display an **Update & Relaunch** banner.
-- Clicking **Update & Relaunch** verifies the SHA-256 checksum and Apple code-signing Team ID, backs up the previous app in ` + "`~/Library/Application Support/Finicky Plus/backups/`" + `, updates **Waystile.app**, **Waystile Actions.app**, and the unpacked **Chrome Extension**, and restarts Waystile.
+- Clicking **Update & Relaunch** verifies the SHA-256 checksum and Apple code-signing Team ID, backs up the previous apps in ` + "`~/Library/Application Support/Finicky Plus/backups/`" + `, updates **Waystile.app** and the included **Waystile Actions.app**, and restarts Waystile.
+- The optional **Chrome Extension** folder in the archive is a separate manual install. Extract the archive, inspect the extension, and update the unpacked extension yourself; the app updater does not replace browser extension code.
 `
 }
 
 // PublishCloudUpdate packages the verified Waystile router, companion, and Chrome extension
-// into the shared iCloud Drive setup folder and writes a signed-metadata release.json manifest.
+// into the shared iCloud Drive setup folder and writes checksum metadata in release.json.
+// The manifest itself is not signed; installers separately authenticate the Apple-signed apps.
 func PublishCloudUpdate(opts PublishOptions) (*CloudReleaseManifest, error) {
 	cloudDir := opts.CloudSetupDir
 	if cloudDir == "" {
@@ -664,6 +674,9 @@ func InstallCloudUpdate(opts InstallOptions) (*InstallResult, error) {
 	if requiredTeam != "" && manifest.TeamID != "" && requiredTeam != manifest.TeamID {
 		return nil, fmt.Errorf("update manifest signing Team ID %q does not match installed Team ID %q", manifest.TeamID, requiredTeam)
 	}
+	if requiredTeam == "" && !opts.AllowAdHocForTest {
+		return nil, errors.New("could not establish the installed app's signing Team ID; install a signed Waystile app before using automatic updates")
+	}
 
 	extractDir, err := os.MkdirTemp("", "waystile-install-*")
 	if err != nil {
@@ -701,6 +714,9 @@ func InstallCloudUpdate(opts InstallOptions) (*InstallResult, error) {
 		}
 		hasCompanion = true
 	}
+	if manifest.IncludesCompanion && !hasCompanion {
+		return nil, errors.New("update manifest includes Waystile Actions, but the archive is missing it")
+	}
 
 	backupRoot := opts.BackupRootDir
 	if backupRoot == "" {
@@ -708,74 +724,68 @@ func InstallCloudUpdate(opts InstallOptions) (*InstallResult, error) {
 			backupRoot = filepath.Join(home, "Library", "Application Support", "Finicky Plus", "backups")
 		}
 	}
+	if backupRoot == "" {
+		return nil, errors.New("could not resolve a backup directory; installed apps were not changed")
+	}
 	var backupDir string
 	if backupRoot != "" {
-		backupDir = filepath.Join(backupRoot, fmt.Sprintf("update-%s", time.Now().UTC().Format("20060102-150405")))
-		if err := os.MkdirAll(backupDir, 0700); err != nil {
+		if err := os.MkdirAll(backupRoot, 0700); err != nil {
+			return nil, err
+		}
+		backupDir, err = os.MkdirTemp(backupRoot, "update-"+time.Now().UTC().Format("20060102-150405")+"-")
+		if err != nil {
 			return nil, err
 		}
 		for _, legacyOrCurrent := range []string{"Waystile.app", "Finicky Plus.app", "Waystile Actions.app", "Finicky Actions.app"} {
 			existing := filepath.Join(installDir, legacyOrCurrent)
 			if _, err := os.Stat(existing); err == nil {
-				_ = exec.Command("ditto", existing, filepath.Join(backupDir, legacyOrCurrent)).Run()
+				if out, err := exec.Command("ditto", existing, filepath.Join(backupDir, legacyOrCurrent)).CombinedOutput(); err != nil {
+					return nil, fmt.Errorf("failed to back up %s; installed apps were not changed: %s", legacyOrCurrent, strings.TrimSpace(string(out)))
+				}
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("could not inspect %s before backup: %w", legacyOrCurrent, err)
 			}
 		}
 	}
 
+	// Copy every incoming app before activating either one. Keep the old bundles
+	// available for rollback until the entire update has been activated.
+	stageDir, err := os.MkdirTemp(installDir, ".waystile-update-*")
+	if err != nil {
+		return nil, fmt.Errorf("cannot stage update in %s: %w", installDir, err)
+	}
+	defer os.RemoveAll(stageDir)
 	targetRouter := filepath.Join(installDir, "Waystile.app")
-	tmpRouter := filepath.Join(installDir, ".Waystile.app.updating")
-	_ = os.RemoveAll(tmpRouter)
+	tmpRouter := filepath.Join(stageDir, "Waystile.app")
 	if out, err := exec.Command("ditto", stagedRouter, tmpRouter).CombinedOutput(); err != nil {
 		_ = os.RemoveAll(tmpRouter)
 		return nil, fmt.Errorf("failed to copy Waystile.app to %s: %s", installDir, strings.TrimSpace(string(out)))
 	}
-	_ = os.RemoveAll(targetRouter)
-	if err := os.Rename(tmpRouter, targetRouter); err != nil {
-		_ = os.RemoveAll(tmpRouter)
-		return nil, fmt.Errorf("failed to activate updated Waystile.app: %w", err)
-	}
-	// If migrating from Finicky Plus.app in the same directory, remove the old bundle after backup so LaunchServices does not route to it.
-	legacyRouter := filepath.Join(installDir, "Finicky Plus.app")
-	if _, err := os.Stat(legacyRouter); err == nil && backupDir != "" {
-		_ = os.RemoveAll(legacyRouter)
-	}
+	replacements := []bundleReplacement{{stagedPath: tmpRouter, targetPath: targetRouter}}
 
 	var installedCompanion string
 	if hasCompanion {
 		targetCompanion := filepath.Join(installDir, "Waystile Actions.app")
-		tmpCompanion := filepath.Join(installDir, ".Waystile Actions.app.updating")
-		_ = os.RemoveAll(tmpCompanion)
+		tmpCompanion := filepath.Join(stageDir, "Waystile Actions.app")
 		if out, err := exec.Command("ditto", stagedCompanion, tmpCompanion).CombinedOutput(); err != nil {
 			_ = os.RemoveAll(tmpCompanion)
 			return nil, fmt.Errorf("failed to copy Waystile Actions.app: %s", strings.TrimSpace(string(out)))
 		}
-		_ = os.RemoveAll(targetCompanion)
-		if err := os.Rename(tmpCompanion, targetCompanion); err != nil {
-			_ = os.RemoveAll(tmpCompanion)
-			return nil, fmt.Errorf("failed to activate updated Waystile Actions.app: %w", err)
-		}
+		replacements = append(replacements, bundleReplacement{stagedPath: tmpCompanion, targetPath: targetCompanion})
 		installedCompanion = targetCompanion
-		legacyCompanion := filepath.Join(installDir, "Finicky Actions.app")
-		if _, err := os.Stat(legacyCompanion); err == nil && backupDir != "" {
-			_ = os.RemoveAll(legacyCompanion)
-		}
 	}
-
-	chromeExtDir := opts.ChromeExtensionDir
-	if chromeExtDir == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			chromeExtDir = filepath.Join(home, "Library", "Application Support", "Finicky Plus", "Chrome Extension")
-		}
+	if err := activateBundles(replacements); err != nil {
+		return nil, err
 	}
-	updatedChrome := false
-	stagedChrome := filepath.Join(extractDir, "Chrome Extension")
-	if chromeExtDir != "" {
-		if _, err := os.Stat(filepath.Join(stagedChrome, "manifest.json")); err == nil {
-			if err := os.MkdirAll(chromeExtDir, 0755); err == nil {
-				if exec.Command("ditto", stagedChrome, chromeExtDir).Run() == nil {
-					updatedChrome = true
-				}
-			}
+	// The standalone Chrome extension is not covered by the apps' signatures.
+	// Keep it available for manual installation; never replace it automatically.
+	if backupDir != "" {
+		legacyNames := []string{"Finicky Plus.app"}
+		if hasCompanion {
+			legacyNames = append(legacyNames, "Finicky Actions.app")
+		}
+		for _, name := range legacyNames {
+			_ = os.RemoveAll(filepath.Join(installDir, name))
 		}
 	}
 
@@ -802,9 +812,66 @@ func InstallCloudUpdate(opts InstallOptions) (*InstallResult, error) {
 		CommitHash:             manifest.CommitHash,
 		InstalledAppPath:       targetRouter,
 		InstalledCompanionPath: installedCompanion,
-		UpdatedChromeExtension: updatedChrome,
+		UpdatedChromeExtension: false,
 		BackupDir:              backupDir,
 	}, nil
+}
+
+type bundleReplacement struct{ stagedPath, targetPath string }
+
+// activateBundles retains old bundles beside their destinations until every
+// rename succeeds, and restores all previous apps if any activation fails.
+func activateBundles(replacements []bundleReplacement) error {
+	type activation struct {
+		target, rollbackDir, original string
+		hadOld, activated             bool
+	}
+	var changes []activation
+	rollback := func(cause error) error {
+		for i := len(changes) - 1; i >= 0; i-- {
+			change := changes[i]
+			if change.activated {
+				if err := os.RemoveAll(change.target); err != nil {
+					cause = errors.Join(cause, fmt.Errorf("rollback failed; previous app remains at %s: %w", change.original, err))
+					continue
+				}
+			}
+			if change.hadOld {
+				if err := os.Rename(change.original, change.target); err != nil {
+					cause = errors.Join(cause, fmt.Errorf("rollback failed; previous app remains at %s: %w", change.original, err))
+					continue
+				}
+			}
+			_ = os.RemoveAll(change.rollbackDir)
+		}
+		return cause
+	}
+	for _, replacement := range replacements {
+		dir, err := os.MkdirTemp(filepath.Dir(replacement.targetPath), ".waystile-rollback-*")
+		if err != nil {
+			return rollback(err)
+		}
+		change := activation{target: replacement.targetPath, rollbackDir: dir, original: filepath.Join(dir, "previous.app")}
+		if _, err := os.Lstat(change.target); err == nil {
+			if err := os.Rename(change.target, change.original); err != nil {
+				_ = os.RemoveAll(dir)
+				return rollback(err)
+			}
+			change.hadOld = true
+		} else if !errors.Is(err, os.ErrNotExist) {
+			_ = os.RemoveAll(dir)
+			return rollback(err)
+		}
+		changes = append(changes, change)
+		if err := os.Rename(replacement.stagedPath, replacement.targetPath); err != nil {
+			return rollback(fmt.Errorf("failed to activate %s: %w", filepath.Base(replacement.targetPath), err))
+		}
+		changes[len(changes)-1].activated = true
+	}
+	for _, change := range changes {
+		_ = os.RemoveAll(change.rollbackDir)
+	}
+	return nil
 }
 
 // RelaunchInstalledApp spawns a detached shell that waits briefly, launches the newly

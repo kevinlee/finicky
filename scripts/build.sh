@@ -3,6 +3,20 @@
 # Exit on error
 set -e
 
+# An explicit release version preserves prerelease identity in the router while
+# the macOS bundle keeps a numeric marketing version. Omit for a local build.
+release_version=${RELEASE_VERSION:-}
+if [[ -n "$release_version" ]]; then
+    version_pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+    [[ "$release_version" =~ $version_pattern ]] || { echo 'Invalid RELEASE_VERSION' >&2; exit 2; }
+    if [[ "$release_version" == *-* ]]; then
+        IFS=. read -r -a prerelease_identifiers <<< "${release_version#*-}"
+        for part in "${prerelease_identifiers[@]}"; do
+            [[ ! "$part" =~ ^0[0-9]+$ ]] || { echo 'Numeric prerelease identifiers cannot have leading zeroes' >&2; exit 2; }
+        done
+    fi
+fi
+
 # Build config-api
 (
     cd packages/config-api
@@ -32,6 +46,10 @@ copy_assets() {
     local APP_NAME=$1
     cp packages/config-api/dist/finicky.d.ts apps/finicky/build/${APP_NAME}/Contents/Resources/finicky.d.ts
     rsync -a --exclude='menu.iconset' apps/finicky/assets/ apps/finicky/build/${APP_NAME}/Contents/
+    if [[ -n "$release_version" ]]; then
+        /usr/libexec/PlistBuddy -c "Add :WaystileReleaseVersion string $release_version" \
+            "apps/finicky/build/${APP_NAME}/Contents/Info.plist"
+    fi
     # Notices are resources, not executable code in the bundle's Contents root.
     mv -f "apps/finicky/build/${APP_NAME}/Contents/UI-THIRD-PARTY-NOTICES.txt" \
         "apps/finicky/build/${APP_NAME}/Contents/Resources/UI-THIRD-PARTY-NOTICES.txt"
@@ -62,6 +80,7 @@ build_arch() {
         -ldflags \
         "-X 'finicky/version.commitHash=${COMMIT_HASH}' \
         -X 'finicky/version.buildDate=${BUILD_DATE}' \
+        -X 'finicky/version.releaseVersion=${release_version}' \
         -X 'finicky/version.apiHost=${API_HOST}'" \
         -o ../build/${APP_NAME}/Contents/MacOS/Finicky
 }

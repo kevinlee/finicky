@@ -200,7 +200,10 @@
               {#if updateInfo?.hasUpdate && updateInfo?.source === "icloud"}
                 {updateInfo.archivePendingDownload
                   ? "iCloud Drive is downloading the update archive to this Mac…"
-                  : "Verified package in iCloud Drive includes Waystile, Waystile Actions, and the Chrome extension."}
+                  : `Ready to verify and install Waystile${updateInfo.includesCompanion ? " and Waystile Actions" : ""}.`}
+                {#if updateInfo.includesChromeExtension}
+                  The Chrome extension is a separate manual install from the extracted archive.
+                {/if}
               {:else if updateInfo?.publishedAt}
                 Latest iCloud build published {displayTime(updateInfo.publishedAt)}
               {:else}

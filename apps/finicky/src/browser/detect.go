@@ -89,7 +89,10 @@ static int appExists(const char *identifier) {
 		}
 		NSURL *url = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:value];
 		if (url) return YES;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 		return [[NSWorkspace sharedWorkspace] fullPathForApplication:value] != nil;
+#pragma clang diagnostic pop
 	}
 }
 */

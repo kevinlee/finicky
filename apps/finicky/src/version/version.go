@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"finicky/util"
@@ -19,12 +20,13 @@ import (
 )
 
 const (
-	updateCheckInterval    = 24 * time.Hour
-	defaultGitHubReleases  = "https://api.github.com/repos/kevincorvallis/waystile/releases/latest"
-	defaultReleasePageURL  = "https://github.com/kevincorvallis/waystile/releases"
-	cloudManifestName      = "release.json"
-	cloudUpdateArchiveName = "Waystile-Update.zip"
-	cloudSetupArchiveName  = "Finicky Plus Setup.zip"
+	updateCheckInterval       = 24 * time.Hour
+	failedUpdateCheckInterval = 15 * time.Minute
+	defaultGitHubReleases     = "https://api.github.com/repos/kevincorvallis/waystile/releases?per_page=100"
+	defaultReleasePageURL     = "https://github.com/kevincorvallis/waystile/releases"
+	cloudManifestName         = "release.json"
+	cloudUpdateArchiveName    = "Waystile-Update.zip"
+	cloudSetupArchiveName     = "Finicky Plus Setup.zip"
 )
 
 type ReleaseInfo struct {
@@ -43,18 +45,26 @@ type ReleaseInfo struct {
 }
 
 type UpdateCheckInfo struct {
-	Timestamp   int64       `json:"timestamp"`
-	ReleaseInfo ReleaseInfo `json:"releaseInfo"`
+	Timestamp      int64       `json:"timestamp"`
+	CheckedVersion string      `json:"checkedVersion"`
+	Failed         bool        `json:"failed,omitempty"`
+	ReleaseInfo    ReleaseInfo `json:"releaseInfo"`
 }
 
 var (
 	// These will be set via ldflags during build
-	commitHash = "dev"
-	buildDate  = "unknown"
-	apiHost    = ""
+	commitHash     = "dev"
+	buildDate      = "unknown"
+	apiHost        = ""
+	releaseVersion = ""
+	updateCheckMu  sync.Mutex
 )
 
-var plistVersionKeyPattern = regexp.MustCompile(`(?s)<key>(?:CFBundleShortVersionString|CFBundleVersion)</key>\s*<string>\s*([^<\s]+)\s*</string>`)
+var plistVersionPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?s)<key>WaystileReleaseVersion</key>\s*<string>\s*([^<\s]+)\s*</string>`),
+	regexp.MustCompile(`(?s)<key>CFBundleShortVersionString</key>\s*<string>\s*([^<\s]+)\s*</string>`),
+	regexp.MustCompile(`(?s)<key>CFBundleVersion</key>\s*<string>\s*([^<\s]+)\s*</string>`),
+}
 
 // GetBuildInfo returns the commit hash and build date
 func GetBuildInfo() (string, string) {
@@ -62,14 +72,21 @@ func GetBuildInfo() (string, string) {
 }
 
 func readVersionFromPlistBytes(data []byte) string {
-	matches := plistVersionKeyPattern.FindSubmatch(data)
-	if len(matches) < 2 {
-		return ""
+	for _, pattern := range plistVersionPatterns {
+		if matches := pattern.FindSubmatch(data); len(matches) >= 2 {
+			return strings.TrimSpace(string(matches[1]))
+		}
 	}
-	return strings.TrimSpace(string(matches[1]))
+	return ""
 }
 
 func getCacheDir() string {
+	if custom := os.Getenv("FINICKY_UPDATE_CACHE_DIR"); custom != "" {
+		if err := os.MkdirAll(custom, 0700); err != nil {
+			return ""
+		}
+		return custom
+	}
 	cacheDir, err := util.UserCacheDir()
 	if err != nil {
 		slog.Error("Error getting user cache directory", "error", err)
@@ -116,12 +133,15 @@ func setLastUpdateCheck(info UpdateCheckInfo) {
 	}
 
 	cacheFile := filepath.Join(cacheDir, "last_update_check.json")
-	if err := os.WriteFile(cacheFile, data, 0644); err != nil {
+	if err := atomicWriteBytes(cacheFile, data, 0644); err != nil {
 		slog.Error("Error saving last update check info", "error", err)
 	}
 }
 
 func GetCurrentVersion() string {
+	if releaseVersion != "" {
+		return releaseVersion
+	}
 	candidates := []string{}
 	if custom := os.Getenv("FINICKY_BUNDLE_PATH"); custom != "" {
 		candidates = append(candidates, custom)
@@ -154,30 +174,34 @@ func checkForUpdates(forceNetwork bool) (releaseInfo *ReleaseInfo) {
 		currentVersion = "dev"
 	}
 
-	// 1. Always check the local iCloud Drive release manifest first (zero network cost).
-	if cloudInfo := CheckCloudUpdate(DefaultCloudSetupDir(), currentVersion, commitHash, buildDate); cloudInfo != nil {
-		return cloudInfo
-	}
+	// Cloud metadata is cheap to poll; it must not suppress a newer public release.
+	cloudInfo := CheckCloudUpdate(DefaultCloudSetupDir(), currentVersion, commitHash, buildDate)
 
 	if currentVersion == "dev" {
-		return nil
+		return cloudInfo
 	}
+	updateCheckMu.Lock()
+	defer updateCheckMu.Unlock()
 
 	// 2. Fall back to cached or fresh remote release check.
 	updateCheckInfo := getLastUpdateCheck()
-	if !forceNetwork && updateCheckInfo != nil && updateCheckInfo.Timestamp > 0 {
+	if !forceNetwork && updateCheckInfo != nil && updateCheckInfo.CheckedVersion == currentVersion && updateCheckInfo.Timestamp > 0 {
 		timeSinceLastCheck := time.Since(time.Unix(updateCheckInfo.Timestamp, 0))
-		if timeSinceLastCheck < updateCheckInterval {
+		interval := updateCheckInterval
+		if updateCheckInfo.Failed {
+			interval = failedUpdateCheckInterval
+		}
+		if timeSinceLastCheck < interval {
 			if updateCheckInfo.ReleaseInfo.LatestVersion == "" {
-				return nil
+				return cloudInfo
 			}
 			updateAvailable, err := isUpdateAvailable(currentVersion, updateCheckInfo.ReleaseInfo.LatestVersion)
 			if err != nil || !updateAvailable {
-				return nil
+				return cloudInfo
 			}
 			cached := updateCheckInfo.ReleaseInfo
 			cached.HasUpdate = true
-			return &cached
+			return preferredUpdate(cloudInfo, &cached)
 		}
 	}
 
@@ -188,11 +212,34 @@ func checkForUpdates(forceNetwork bool) (releaseInfo *ReleaseInfo) {
 	if apiHost != "" {
 		info := checkCustomAPIHost(client, currentVersion)
 		if info != nil {
-			return info
+			return preferredUpdate(cloudInfo, info)
 		}
 	}
 
-	return checkGitHubReleases(client, currentVersion)
+	remoteInfo := checkGitHubReleases(client, currentVersion)
+	if remoteInfo == nil {
+		// Bound retries for missing releases, network errors, and rate-limit responses.
+		setLastUpdateCheck(UpdateCheckInfo{Timestamp: time.Now().Unix(), CheckedVersion: currentVersion, Failed: true})
+	}
+	return preferredUpdate(cloudInfo, remoteInfo)
+}
+
+func preferredUpdate(cloudInfo, remoteInfo *ReleaseInfo) *ReleaseInfo {
+	if remoteInfo != nil && remoteInfo.HasUpdate {
+		if cloudInfo == nil || !cloudInfo.HasUpdate {
+			return remoteInfo
+		}
+		if newer, err := isUpdateAvailable(cloudInfo.LatestVersion, remoteInfo.LatestVersion); err == nil && newer {
+			return remoteInfo
+		}
+	}
+	if cloudInfo != nil {
+		return cloudInfo
+	}
+	if remoteInfo != nil && remoteInfo.HasUpdate {
+		return remoteInfo
+	}
+	return nil
 }
 
 func checkCustomAPIHost(client *http.Client, currentVersion string) *ReleaseInfo {
@@ -225,12 +272,10 @@ func checkCustomAPIHost(client *http.Client, currentVersion string) *ReleaseInfo
 	}
 	releaseInfo.HasUpdate = updateAvailable
 	setLastUpdateCheck(UpdateCheckInfo{
-		Timestamp:   time.Now().Unix(),
-		ReleaseInfo: releaseInfo,
+		Timestamp:      time.Now().Unix(),
+		CheckedVersion: currentVersion,
+		ReleaseInfo:    releaseInfo,
 	})
-	if !updateAvailable {
-		return nil
-	}
 	return &releaseInfo
 }
 
@@ -240,6 +285,7 @@ type githubReleasePayload struct {
 	PublishedAt string `json:"published_at"`
 	Body        string `json:"body"`
 	Draft       bool   `json:"draft"`
+	Prerelease  bool   `json:"prerelease"`
 	Assets      []struct {
 		Name               string `json:"name"`
 		BrowserDownloadURL string `json:"browser_download_url"`
@@ -270,9 +316,37 @@ func checkGitHubReleases(client *http.Client, currentVersion string) *ReleaseInf
 	if err != nil {
 		return nil
 	}
-	var payload githubReleasePayload
-	if err := json.Unmarshal(body, &payload); err != nil || payload.Draft || payload.TagName == "" {
+	var payloads []githubReleasePayload
+	if err := json.Unmarshal(body, &payloads); err != nil {
+		// Preserve compatibility with explicitly configured single-release endpoints.
+		var payload githubReleasePayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return nil
+		}
+		payloads = []githubReleasePayload{payload}
+	}
+	current, err := semver.NewVersion(strings.TrimPrefix(currentVersion, "v"))
+	if err != nil {
 		return nil
+	}
+	var payload *githubReleasePayload
+	var latest *semver.Version
+	for i := range payloads {
+		candidate := &payloads[i]
+		v, err := semver.NewVersion(strings.TrimPrefix(candidate.TagName, "v"))
+		if err != nil || candidate.Draft || candidate.TagName == "" {
+			continue
+		}
+		if current.Prerelease() == "" && (candidate.Prerelease || v.Prerelease() != "") {
+			continue
+		}
+		if latest == nil || v.GreaterThan(latest) {
+			payload, latest = candidate, v
+		}
+	}
+	if payload == nil {
+		setLastUpdateCheck(UpdateCheckInfo{Timestamp: time.Now().Unix(), CheckedVersion: currentVersion})
+		return &ReleaseInfo{}
 	}
 	releaseURL := payload.HTMLURL
 	if releaseURL == "" {
@@ -280,8 +354,7 @@ func checkGitHubReleases(client *http.Client, currentVersion string) *ReleaseInf
 	}
 	downloadURL := releaseURL
 	for _, asset := range payload.Assets {
-		lower := strings.ToLower(asset.Name)
-		if strings.HasSuffix(lower, ".zip") && (strings.Contains(lower, "waystile") || strings.Contains(lower, "universal")) && !strings.Contains(lower, "actions") {
+		if asset.Name == "Waystile-"+strings.TrimPrefix(payload.TagName, "v")+"-universal.zip" && asset.BrowserDownloadURL != "" {
 			downloadURL = asset.BrowserDownloadURL
 			break
 		}
@@ -300,12 +373,10 @@ func checkGitHubReleases(client *http.Client, currentVersion string) *ReleaseInf
 		Notes:         strings.TrimSpace(payload.Body),
 	}
 	setLastUpdateCheck(UpdateCheckInfo{
-		Timestamp:   time.Now().Unix(),
-		ReleaseInfo: info,
+		Timestamp:      time.Now().Unix(),
+		CheckedVersion: currentVersion,
+		ReleaseInfo:    info,
 	})
-	if !updateAvailable {
-		return nil
-	}
 	return &info
 }
 
@@ -316,6 +387,27 @@ func CheckForUpdatesIfEnabled(vm *goja.Runtime) (releaseInfo *ReleaseInfo, updat
 
 // CheckForUpdatesWithOptions checks for updates, optionally forcing a fresh check.
 func CheckForUpdatesWithOptions(vm *goja.Runtime, force bool) (releaseInfo *ReleaseInfo, updateCheckEnabled bool, err error) {
+	enabled, err := UpdateChecksEnabled(vm)
+	if err != nil {
+		return nil, true, err
+	}
+	return CheckForUpdatesWithSetting(enabled, force), enabled || force, nil
+}
+
+// UpdateChecksEnabled reads the VM option without performing filesystem or network work.
+func UpdateChecksEnabled(vm *goja.Runtime) (bool, error) {
+	if vm == nil {
+		return true, nil
+	}
+	shouldCheck, err := vm.RunString("finickyConfigAPI.getOption('checkForUpdates', finalConfig, true)")
+	if err != nil {
+		return true, fmt.Errorf("failed to get checkForUpdates option: %v", err)
+	}
+	return shouldCheck.ToBoolean(), nil
+}
+
+// CheckForUpdatesWithSetting uses an option snapshot, so the caller can release the VM lock first.
+func CheckForUpdatesWithSetting(enabled, force bool) *ReleaseInfo {
 	if mockVersion := os.Getenv("FINICKY_MOCK_UPDATE"); mockVersion != "" {
 		slog.Info("FINICKY_MOCK_UPDATE set, returning mock update", "version", mockVersion)
 		mockTag := strings.TrimPrefix(mockVersion, "v")
@@ -325,30 +417,15 @@ func CheckForUpdatesWithOptions(vm *goja.Runtime, force bool) (releaseInfo *Rele
 			DownloadUrl:   fmt.Sprintf("https://github.com/kevincorvallis/waystile/releases/tag/v%s", mockTag),
 			ReleaseUrl:    fmt.Sprintf("https://github.com/kevincorvallis/waystile/releases/tag/v%s", mockTag),
 			Source:        "github",
-		}, true, nil
-	}
-
-	// Always check local iCloud Drive release manifest when force-checking or when enabled.
-	if vm == nil || force {
-		releaseInfo := checkForUpdates(force)
-		return releaseInfo, true, nil
-	}
-
-	shouldCheckForUpdates, err := vm.RunString("finickyConfigAPI.getOption('checkForUpdates', finalConfig, true)")
-	if err != nil {
-		return nil, true, fmt.Errorf("failed to get checkForUpdates option: %v", err)
+		}
 	}
 
 	// Even if remote HTTP update checks are disabled in old configs, local iCloud Drive
 	// release manifests are checked with zero network traffic.
-	if !shouldCheckForUpdates.ToBoolean() {
-		if cloudInfo := CheckCloudUpdate(DefaultCloudSetupDir(), GetCurrentVersion(), commitHash, buildDate); cloudInfo != nil {
-			return cloudInfo, false, nil
-		}
-		return nil, false, nil
+	if !enabled && !force {
+		return CheckCloudUpdate(DefaultCloudSetupDir(), GetCurrentVersion(), commitHash, buildDate)
 	}
-
-	return checkForUpdates(false), true, nil
+	return checkForUpdates(force)
 }
 
 // isUpdateAvailable checks if the latest version is newer than the current version

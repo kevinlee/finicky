@@ -21,6 +21,17 @@ jobs:
         working-directory: packages/config-api
       - run: npm run check && node --experimental-strip-types --test tests/*.test.mjs
         working-directory: packages/finicky-ui
-      - run: BUILD_UNIVERSAL=1 ./scripts/build-fork.sh
+      - run: node --test tests/*.test.mjs
+        working-directory: apps/browser-addon
+      - run: command -v xcodegen >/dev/null || brew install xcodegen
+      - run: BUILD_UNIVERSAL=1 ./scripts/build-fork.sh --integrations
       - run: go test -race -count=1 ./...
         working-directory: apps/finicky/src
+      - run: |
+          xcodebuild \
+            -project apps/integrations/FinickyIntegrations.xcodeproj \
+            -scheme FinickyActions \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath apps/integrations/.build/DerivedData \
+            CODE_SIGN_IDENTITY=- test

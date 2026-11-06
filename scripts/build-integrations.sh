@@ -44,6 +44,14 @@ if [[ -e "$output_app" ]]; then
   mv "$output_app" "$previous_output/Waystile Actions.app"
 fi
 ditto "$app_path" "$output_app"
+lsregister="/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+if [[ -x "$lsregister" ]]; then
+  "$lsregister" -u "$app_path" 2>/dev/null || true
+  "$lsregister" -u "$output_app" 2>/dev/null || true
+  if [[ -d "/Applications/Waystile Actions.app" ]]; then
+    "$lsregister" -f -R -trusted "/Applications/Waystile Actions.app" 2>/dev/null || true
+  fi
+fi
 codesign --verify --deep --strict "$output_app"
 if [[ "$require_runtime_signing" == "1" ]]; then
   bash "$repo_root/scripts/check-integration-signing.sh" --require-team "$output_app"

@@ -469,11 +469,13 @@ func runUpdateCheck(force bool) {
 		runtime = vm.Runtime()
 	}
 
-	releaseInfo, updateCheckEnabled, err := version.CheckForUpdatesWithOptions(runtime, force)
+	updateCheckEnabled, err := version.UpdateChecksEnabled(runtime)
 	vmMu.Unlock()
 	if err != nil {
 		slog.Error("Error checking for updates", "error", err)
+		return
 	}
+	releaseInfo := version.CheckForUpdatesWithSetting(updateCheckEnabled, force)
 
 	updateInfo := UpdateInfo{
 		ReleaseInfo:        releaseInfo,

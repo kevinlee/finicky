@@ -53,6 +53,8 @@ The **Learning** panel is an opt-in local experiment. It records sanitized domai
 
 The **Sync** panel uses your iCloud Drive to share visual routing settings. Each Mac maps shared profile labels to its own local destinations. Browser data, learning observations, link history, and logging preferences remain local. Concurrent edits require an explicit choice of an entire settings version; there is no automatic rule-by-rule merge. See [multi-Mac setup](docs/SECOND_MAC.md) and the [sync contract](docs/SYNC.md).
 
+**Check for Updates** checks this project's GitHub releases; public downloads are installed manually. The optional iCloud Drive update workflow lets you publish a signed router and companion to your own account, then verify and install them on another Mac. Browser add-on updates require manual installation.
+
 ## Build from source
 
 Requires macOS 13+, Xcode command-line tools, Go 1.24 or later, Node.js 22 or later, and npm. Full Xcode and XcodeGen are additionally required for the native companion.
@@ -67,7 +69,7 @@ BUILD_UNIVERSAL=1 ./scripts/build-fork.sh
 
 The router is written to `apps/finicky/build/Waystile.app`. The internal executable remains `Contents/MacOS/Finicky` for compatibility. Browser extension archives are written to `apps/browser-addon/build/chrome.zip` and `firefox.zip`.
 
-Build scripts do not install the app or change the default browser. Local router builds use ad hoc signatures. See the release script and release notes for distribution signing requirements. There is no automatic fork-update channel configured by default.
+The build commands above do not install the app or change the default browser. Local router builds use ad hoc signatures. Set `RELEASE_VERSION=0.1.0-beta.2` when building this beta to embed its prerelease version. See the release script and release notes for distribution signing requirements. The separate `scripts/publish-update.sh` workflow installs locally and publishes to your iCloud Drive; use it only when you intend those changes.
 
 To build the optional native companion too, use `./scripts/build-fork.sh --integrations` and follow the [companion signing instructions](apps/integrations/README.md).
 
@@ -102,7 +104,7 @@ These are compatibility paths, not separate applications to install. Visual sett
 
 Automated tests cover rule and destination validation, browser launch arguments, router-loop prevention, URL cleanup, profile discovery fixtures, settings sync, and local learning. UI checks cover draft saving, focus handling, and mapping errors. Live testing has covered selected Chrome profile routes and native integrations on development builds, not every browser, OS version, or integration combination.
 
-Current limitations include incomplete live coverage for Firefox variants, actual OS delivery of Focus changes, Handoff between devices, and some companion actions. App Store distribution, full-app sandbox conversion, and a public automatic updater are not part of this beta. The public [verification summary](docs/VERIFICATION.md) distinguishes release checks from earlier development-build evidence.
+Current limitations include incomplete live coverage for Firefox variants, actual OS delivery of Focus changes, Handoff between devices, and some companion actions. App Store distribution, full-app sandbox conversion, and automatic installation from GitHub are not part of this beta. The public [verification summary](docs/VERIFICATION.md) distinguishes release checks from earlier development-build evidence.
 
 ## Credits and license
 
