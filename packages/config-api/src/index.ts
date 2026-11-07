@@ -101,8 +101,16 @@ export function openUrl(
   }
 
   let error: string | undefined;
+  const warnings: string[] = [];
 
   try {
+    if (config.options?.transformScript?.trim()) {
+      try {
+        url = transformScript(config.options.transformScript, url, options);
+      } catch (ex) {
+        warnings.push("Global URL transformation failed; keeping the original URL: " + (ex instanceof Error ? ex.message : String(ex)));
+      }
+    }
     if (config.rewrite) {
       for (const rewrite of config.rewrite) {
         if (isMatch(rewrite.match, url, options)) {
@@ -113,9 +121,17 @@ export function openUrl(
 
     if (config.handlers) {
       for (const [index, handler] of config.handlers.entries()) {
+        if (handler.enabled === false) continue;
+        if (handler.sourceApps?.length &&
+            (!opener || !handler.sourceApps.includes(opener.bundleId))) continue;
         if (isMatch(handler.match, url, options)) {
+          let destinationURL = handler.url ? rewriteUrl(handler.url, url, options) : url;
+          if (handler.transformScript?.trim()) {
+            destinationURL = transformScript(handler.transformScript, destinationURL, options);
+          }
           return {
-            browser: resolveBrowser(handler.browser, url, options),
+            browser: { ...resolveBrowser(handler.browser, destinationURL, options), matchedRule: handler.ruleIndex ?? index },
+            warnings,
           };
         }
       }
@@ -129,6 +145,7 @@ export function openUrl(
   return {
     browser,
     error,
+    warnings,
   };
   } catch (ex: unknown) {
     throw new Error(
@@ -155,6 +172,10 @@ export function createBrowserConfig(
     args: [],
   };
 
+  if (browser === "prompt") {
+    return { ...defaults, name: "", appType: "none", action: "prompt" };
+  }
+
   if (browser === null) {
     return {
       ...defaults,
@@ -172,7 +193,23 @@ export function createBrowserConfig(
     };
   }
 
-  return { ...defaults, ...browser };
+  // Existing object configurations retain their app-name default. Direct
+  // directory targets also accept bundle IDs from the visual settings.
+  if (browser.name === "prompt") {
+    return { ...defaults, ...browser, name: "", appType: "none", action: "prompt" };
+  }
+  const appType = autodetectAppStringType(browser.name);
+  return { ...defaults, appType, ...browser };
+}
+
+// Settings scripts have the same local trust model as the JavaScript config.
+// A string input makes small replacements convenient; URL is also available.
+function transformScript(script: string, url: FinickyURL, options: OpenUrlOptions): FinickyURL {
+  const result: unknown = new Function("url", "options", '"use strict";\n' + script)(url.href, options);
+  if (typeof result !== "string" || !result.trim()) {
+    throw new Error("URL transformation must return a non-empty URL string");
+  }
+  return new FinickyURL(result, options.opener);
 }
 
 export function resolveBrowserInfo(

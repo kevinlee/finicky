@@ -4,3 +4,6 @@ build
 .env
 dist
 example-config
+apps/integrations/build/
+apps/integrations/*.xcodeproj/
+.DS_Store

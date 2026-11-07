@@ -1,23 +1,19 @@
 ---
 name: Bug report
-about: Help make Finicky better by reporting problems
+about: Report a reproducible Waystile problem
 title: ''
 labels: bug
 assignees: ''
-
 ---
 
-⚠️ Please note that only Finicky 4 is being actively developed and maintained, bugs in Finicky 3 and below won't be fixed
+**What happened?**
+Describe the expected behavior and what happened instead.
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+**Version and environment**
+Waystile version, macOS version, and affected browser/version.
 
-**Your configuration**
-Please add a link to or paste the relevant parts of your configuration here
+**Steps to reproduce**
+Include the smallest synthetic example that demonstrates the issue.
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+**Relevant configuration or diagnostics**
+Remove private URLs, account names, tokens, and unrelated rules before sharing. Diagnostic logs may contain full URLs even for private-mode requests.

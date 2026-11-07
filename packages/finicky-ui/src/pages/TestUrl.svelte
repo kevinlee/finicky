@@ -72,7 +72,7 @@
 </script>
 
 <PageContainer title="Test">
-  {#snippet description()}Test how Finicky will handle a URL based on your current configuration{/snippet}
+  {#snippet description()}Test how Waystile will handle a URL based on your current configuration{/snippet}
   <div class="input-section">
       <label for="url-input" class="input-label">
         Enter URL
@@ -125,7 +125,7 @@
     {:else if testUrl.trim() && !isValidUrl(testUrl)}
       <div class="hint-message">
         <InfoIcon />
-        Enter a valid URL to see how Finicky will handle it
+        Enter a valid URL to see how Waystile will handle it
       </div>
     {:else if !testUrl.trim()}
       <div class="empty-state">

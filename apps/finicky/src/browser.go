@@ -12,12 +12,12 @@ import (
 	"unsafe"
 )
 
-var bundleId = "se.johnste.finicky"
+var bundleId = "com.kevinlee.finicky"
 
 func isDefaultBrowser() (bool, error) {
 	bundleIdHTTP, _ := getDefaultHandlerForURLScheme("http")
 	bundleIdHTTPS, _ := getDefaultHandlerForURLScheme("https")
-	bundleIdFinicky, _ := getDefaultHandlerForURLScheme("finicky")
+	bundleIdFinicky, _ := getDefaultHandlerForURLScheme("finicky-plus")
 
 	if bundleIdHTTP == bundleIdHTTPS &&
 		bundleIdHTTP == bundleId &&
@@ -38,7 +38,7 @@ func setDefaultBrowser() (bool, error) {
 
 	setDefaultHandlerForURLScheme(bundleId, "http")
 	setDefaultHandlerForURLScheme(bundleId, "https")
-	setDefaultHandlerForURLScheme(bundleId, "finicky")
+	setDefaultHandlerForURLScheme(bundleId, "finicky-plus")
 	return true, nil
 }
 

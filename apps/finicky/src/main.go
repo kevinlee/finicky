@@ -10,12 +10,14 @@ import "C"
 
 import (
 	_ "embed"
-	"encoding/base64"
+	"encoding/json"
 	"finicky/browser"
+	"finicky/browseraccess"
 	"finicky/config"
 	"finicky/logger"
 	"finicky/resolver"
 	"finicky/rules"
+	"finicky/urlrequest"
 	"finicky/util"
 	"finicky/version"
 	"finicky/window"
@@ -24,7 +26,8 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
-	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dop251/goja"
@@ -39,6 +42,10 @@ type UpdateInfo struct {
 }
 
 type URLInfo struct {
+	ReceivedAt       time.Time
+	LearningEpoch    uint64
+	Request          urlrequest.Request
+	Modifiers        map[string]bool
 	URL              string
 	Opener           *resolver.OpenerInfo
 	OpenInBackground bool
@@ -51,21 +58,23 @@ type ConfigInfo struct {
 	ConfigPath     string
 }
 
-var urlListener chan URLInfo = make(chan URLInfo)
-var windowClosed chan struct{} = make(chan struct{})
+var urlListener chan URLInfo = make(chan URLInfo, 256)
+var windowClosed chan struct{} = make(chan struct{}, 1)
 var vm *config.VM
+var vmMu sync.Mutex
 
 var forceWindowOpen bool = false
-var queueWindowOpen chan bool = make(chan bool)
-var lastError error
+var queueWindowOpen chan bool = make(chan bool, 1)
 var dryRun bool = false
+var previewMode bool = false
 var skipJSConfig bool = false
-var updateInfo UpdateInfo
 var configInfo *ConfigInfo
-var shouldKeepRunning bool = true
+var shouldKeepRunning atomic.Bool
 
 func main() {
+	shouldKeepRunning.Store(true)
 	startTime := time.Now()
+	logger.SetWindowHandler(func(message string) { window.SendMessageToWebView("log", message) })
 	logger.Setup()
 	runtime.LockOSThread()
 
@@ -75,6 +84,11 @@ func main() {
 	noConfigPtr := flag.Bool("no-config", false, "Skip JS configuration file entirely")
 	windowPtr := flag.Bool("window", false, "Force window to open")
 	dryRunPtr := flag.Bool("dry-run", false, "Simulate without actually opening browsers")
+	previewPtr := flag.Bool("preview", false, "Preview settings without claiming default-browser status, stopping other instances, or opening browsers")
+	testURLPtr := flag.String("test-url", "", "Resolve a URL and print JSON without launching")
+	promptPtr := flag.Bool("prompt", false, "Show the picker for positional URLs")
+	publishUpdatePtr := flag.Bool("publish-update", false, "Publish the installed signed Waystile build to iCloud Drive and exit")
+	installUpdatePtr := flag.Bool("install-update", false, "Verify and install the latest Waystile build from iCloud Drive and exit")
 	flag.Parse()
 
 	// Use the parsed values
@@ -97,21 +111,53 @@ func main() {
 		forceWindowOpen = true
 	}
 
-	dryRun = *dryRunPtr
+	previewMode = *previewPtr
+	if previewMode && *rulesPathPtr == "" {
+		fmt.Fprintln(os.Stderr, "Preview mode requires an explicit --rules path for isolated settings")
+		os.Exit(2)
+	}
+	dryRun = *dryRunPtr || previewMode
+	C.SetPreviewMode(C.bool(previewMode))
 
 	currentVersion := version.GetCurrentVersion()
 	commitHash, buildDate := version.GetBuildInfo()
-	slog.Info("Starting Finicky", "version", currentVersion)
+	slog.Info("Starting Waystile", "version", currentVersion)
 	slog.Debug("Build info", "buildDate", buildDate, "commitHash", commitHash)
 
+	if *publishUpdatePtr {
+		manifest, err := version.PublishCloudUpdate(version.PublishOptions{})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to publish update: %v\n", err)
+			os.Exit(1)
+		}
+		out, _ := json.MarshalIndent(manifest, "", "  ")
+		fmt.Println(string(out))
+		os.Exit(0)
+	}
+
+	if *installUpdatePtr {
+		res, err := version.InstallCloudUpdate(version.InstallOptions{})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to install update: %v\n", err)
+			os.Exit(1)
+		}
+		out, _ := json.MarshalIndent(res, "", "  ")
+		fmt.Println(string(out))
+		os.Exit(0)
+	}
+
 	go func() {
+		if previewMode || dryRun || *testURLPtr != "" {
+			slog.Debug("Preview mode: leaving the default browser unchanged")
+			return
+		}
 		is_default_browser, err := setDefaultBrowser()
 		if err != nil {
 			slog.Debug("Failed checking if we are the default browser", "error", err)
 		} else if !is_default_browser {
-			slog.Debug("Finicky is not the default browser")
+			slog.Debug("Waystile is not the default browser")
 		} else {
-			slog.Debug("Finicky is the default browser")
+			slog.Debug("Waystile is the default browser")
 		}
 	}()
 
@@ -130,41 +176,94 @@ func main() {
 
 	slog.Debug("VM setup complete", "duration", fmt.Sprintf("%.2fms", float64(time.Since(startTime).Microseconds())/1000))
 
+	if *testURLPtr != "" {
+		result, resolveErr := resolver.ResolveURL(vm, *testURLPtr, nil, false)
+		printTestResult(result, resolveErr)
+		return
+	}
+	setupFeatureBridge()
+	if accessErr := browseraccess.Restore(); accessErr != nil {
+		slog.Warn("Browser profile access", "error", accessErr)
+	}
+	if rf, e := rules.Load(); e == nil {
+		refreshMenuIcon(rf)
+		if err := reconcileLearning(rf); err != nil {
+			slog.Warn("Could not reconcile local learning data", "error", err)
+		}
+	}
+	for _, raw := range flag.Args() {
+		enqueueURL(raw, nil, false, *promptPtr)
+	}
 	go checkForUpdates()
 
 	// Set up test URL handler
-	window.TestUrlHandler = func(url string) {
-		go TestURLInternal(url)
+	window.TestUrlHandler = func(url string, opener *resolver.OpenerInfo) {
+		go TestURLInternal(url, opener)
 	}
 
 	// Set up rules save handler.
 	// When there is no JS config, rebuild the VM from the updated rules.
 	// When there is a JS config, JSON rules are loaded fresh in evaluateURL — nothing to do.
-	window.SaveRulesHandler = func(rf rules.RulesFile) {
-		slog.Debug("Rules updated", "count", len(rf.Rules))
-		resolver.SetCachedRules(rf)
-		if vm == nil || !vm.IsJSConfig() {
-			if rf.DefaultBrowser == "" && len(rf.Rules) == 0 && rf.Options == nil {
-				vm = nil
-				return
+	window.SaveRulesHandler = func(_ rules.RulesFile) error {
+		return applyLatestSavedRules(func(rf rules.RulesFile) error {
+			if err := reconcileLearning(rf); err != nil {
+				// Rules have already been saved. A corrupt optional learning store
+				// must not prevent the new routing settings from taking effect.
+				slog.Warn("Could not reconcile local learning data", "error", err)
 			}
-			script, err := rules.ToJSConfigScript(rf, namespace)
-			if err != nil {
-				slog.Error("Failed to generate config from rules", "error", err)
-				return
+			vmMu.Lock()
+			defer vmMu.Unlock()
+			configPath := ""
+			if configInfo != nil {
+				configPath = configInfo.ConfigPath
 			}
-			newVM, err := config.NewFromScript(finickyConfigAPIJS, namespace, script)
-			if err != nil {
-				slog.Error("Failed to rebuild VM from rules", "error", err)
-				return
+			// Imports can remove overrides. Publish the resulting effective values,
+			// including when a runtime side effect fails after the VM was updated.
+			defer func() { publishConfiguration(vm, configPath) }()
+			slog.Debug("Rules updated", "count", len(rf.Rules))
+			resolver.SetCachedRules(rf)
+			refreshMenuIcon(rf)
+			if vm == nil || !vm.IsJSConfig() {
+				if rf.DefaultBrowser == "" && len(rf.Rules) == 0 && rf.Options == nil && (rf.Features == nil || rf.Features.TransformScript == "") {
+					vm = nil
+					configPath = ""
+					shouldKeepRunning.Store(vm.GetAllConfigOptions().KeepRunning)
+					return logger.SetupFile(false)
+				}
+				script, err := rules.ToJSConfigScript(rf, namespace)
+				if err != nil {
+					slog.Error("Failed to generate config from rules", "error", err)
+					return err
+				}
+				newVM, err := config.NewFromScript(finickyConfigAPIJS, namespace, script)
+				if err != nil {
+					slog.Error("Failed to rebuild VM from rules", "error", err)
+					return err
+				}
+				vm = newVM
+				configPath, _ = rules.GetPath()
+				if vm != nil {
+					opts := vm.GetAllConfigOptions()
+					shouldKeepRunning.Store(opts.KeepRunning)
+					if logErr := logger.SetupFile(opts.LogRequests && !dryRun); logErr != nil {
+						return logErr
+					}
+					go checkForUpdates()
+				}
+			} else {
+				if err := applyVisualOptions(vm, rf); err != nil {
+					return err
+				}
+				opts := vm.GetAllConfigOptions()
+				shouldKeepRunning.Store(opts.KeepRunning)
+				if err := logger.SetupFile(opts.LogRequests && !dryRun); err != nil {
+					return err
+				}
 			}
-			vm = newVM
-			if vm != nil {
-				shouldKeepRunning = vm.GetAllConfigOptions().KeepRunning
-				go checkForUpdates()
-			}
-		}
+			return nil
+		})
 	}
+	setupSettingsSync()
 
 	const oneDay = 24 * time.Hour
 
@@ -173,9 +272,9 @@ func main() {
 	updateChan := time.After(oneDay)
 
 	if vm != nil {
-		shouldKeepRunning = vm.GetAllConfigOptions().KeepRunning
+		shouldKeepRunning.Store(vm.GetAllConfigOptions().KeepRunning)
 	}
-	if shouldKeepRunning {
+	if shouldKeepRunning.Load() {
 		timeoutChan = nil
 	}
 
@@ -186,23 +285,11 @@ func main() {
 			case urlInfo := <-urlListener:
 				startTime := time.Now()
 
-				url := urlInfo.URL
-
-				slog.Info("URL received", "url", url)
-
-				config, err := resolver.ResolveURL(vm, url, urlInfo.Opener, urlInfo.OpenInBackground)
-				if err != nil {
-					handleRuntimeError(err)
-				} else {
-					lastError = nil
-				}
-				if launchErr := browser.LaunchBrowser(*config, dryRun, urlInfo.OpenInBackground); launchErr != nil {
-					slog.Error("Failed to start browser", "error", launchErr)
-				}
+				routeRequest(urlInfo)
 
 				slog.Debug("Time taken evaluating URL and opening browser", "duration", fmt.Sprintf("%.2fms", float64(time.Since(startTime).Microseconds())/1000))
 
-				if !showingWindow && !shouldKeepRunning {
+				if !showingWindow && !shouldKeepRunning.Load() {
 					timeoutChan = time.After(2 * time.Second)
 				} else {
 					timeoutChan = nil
@@ -212,18 +299,21 @@ func main() {
 				startTime := time.Now()
 				var setupErr error
 				slog.Debug("Config has changed")
+				settingsApplyMu.Lock()
+				vmMu.Lock()
 				vm, setupErr = setupVM(cfw, namespace)
+				vmMu.Unlock()
+				settingsApplyMu.Unlock()
 				if setupErr != nil {
 					handleRuntimeError(setupErr)
 				} else {
-					lastError = nil
 					C.SetStatusItemError(false)
 				}
 				slog.Debug("VM refresh complete", "duration", fmt.Sprintf("%.2fms", float64(time.Since(startTime).Microseconds())/1000))
-				if vm != nil {
-					shouldKeepRunning = vm.GetAllConfigOptions().KeepRunning
-					go checkForUpdates()
-				}
+				vmMu.Lock()
+				shouldKeepRunning.Store(vm.GetAllConfigOptions().KeepRunning)
+				vmMu.Unlock()
+				go checkForUpdates()
 
 			case shouldShowWindow := <-queueWindowOpen:
 				if !showingWindow && shouldShowWindow {
@@ -237,7 +327,8 @@ func main() {
 				updateChan = time.After(oneDay)
 
 			case <-windowClosed:
-				if !shouldKeepRunning {
+				showingWindow = false
+				if !shouldKeepRunning.Load() {
 					slog.Info("Exiting due to window closed")
 					tearDown()
 				} else {
@@ -251,16 +342,17 @@ func main() {
 		}
 	}()
 
+	vmMu.Lock()
 	shouldHideIcon := false
 	if vm != nil {
 		shouldHideIcon = vm.GetAllConfigOptions().HideIcon
 	}
-	C.RunApp(C.bool(forceWindowOpen), C.bool(!shouldHideIcon), C.bool(shouldKeepRunning))
+	vmMu.Unlock()
+	C.RunApp(C.bool(forceWindowOpen), C.bool(!shouldHideIcon), C.bool(shouldKeepRunning.Load()))
 }
 
 func handleRuntimeError(err error) {
 	slog.Error("Failed evaluating url", "error", err)
-	lastError = err
 	C.SetStatusItemError(true)
 }
 
@@ -279,36 +371,24 @@ func HandleURL(url *C.char, name *C.char, bundleId *C.char, path *C.char, window
 		}
 	}
 
-	urlString := C.GoString(url)
-
-	// Handle finicky:// protocol URLs by extracting and decoding the embedded URL
-	if strings.HasPrefix(urlString, "finicky://open/") {
-		encodedURL := strings.TrimPrefix(urlString, "finicky://open/")
-		if decodedBytes, err := base64.StdEncoding.DecodeString(encodedURL); err == nil {
-			urlString = string(decodedBytes)
-			slog.Debug("Decoded finicky protocol URL", "original", C.GoString(url), "decoded", urlString)
-		} else {
-			slog.Warn("Failed to decode finicky protocol URL", "error", err, "url", C.GoString(url))
-		}
-	}
-
-	urlListener <- URLInfo{
-		URL:              urlString,
-		Opener:           &opener,
-		OpenInBackground: bool(openInBackground),
-	}
+	enqueueURL(C.GoString(url), &opener, bool(openInBackground), false)
 }
 
 //export TestURL
 func TestURL(url *C.char) {
 	urlString := C.GoString(url)
-	TestURLInternal(urlString)
+	TestURLInternal(urlString, nil)
 }
 
-func TestURLInternal(urlString string) {
+func TestURLInternal(urlString string, opener *resolver.OpenerInfo) {
 	slog.Debug("Testing URL", "url", urlString)
 
-	config, err := resolver.ResolveURL(vm, urlString, nil, false)
+	vmMu.Lock()
+	config, err := resolver.ResolveURL(vm, urlString, opener, false)
+	vmMu.Unlock()
+	if err == nil && config.Action != "prompt" {
+		err = browser.ValidateTarget(*config)
+	}
 	if err != nil {
 		slog.Error("Failed to evaluate URL", "error", err)
 		window.SendMessageToWebView("testUrlResult", map[string]interface{}{
@@ -319,22 +399,29 @@ func TestURLInternal(urlString string) {
 
 	window.SendMessageToWebView("testUrlResult", map[string]interface{}{
 		"url":              config.URL,
+		"action":           config.Action,
+		"matchedRule":      config.MatchedRule,
 		"browser":          config.Name,
 		"openInBackground": config.OpenInBackground,
 		"profile":          config.Profile,
+		"profileDirectory": config.ProfileDirectory,
+		"private":          config.Private,
+		"newWindow":        config.NewWindow,
 		"args":             config.Args,
 	})
 }
 
 func handleFatalError(errorMessage string) {
 	slog.Error("Fatal error", "msg", errorMessage)
-	lastError = fmt.Errorf("%s", errorMessage)
 	C.SetStatusItemError(true)
 }
 
 //export QueueWindowDisplay
 func QueueWindowDisplay(openWindow int32) {
-	queueWindowOpen <- openWindow != 0
+	select {
+	case queueWindowOpen <- openWindow != 0:
+	default:
+	}
 }
 
 //export ShowConfigWindow
@@ -350,11 +437,16 @@ func ShowConfigWindow() {
 
 //export WindowDidClose
 func WindowDidClose() {
-	windowClosed <- struct{}{}
+	select {
+	case windowClosed <- struct{}{}:
+	default:
+	}
 }
 
 //export GetCurrentConfigPath
 func GetCurrentConfigPath() *C.char {
+	vmMu.Lock()
+	defer vmMu.Unlock()
 	if configInfo != nil && configInfo.ConfigPath != "" {
 		cPath := C.CString(configInfo.ConfigPath)
 		return cPath
@@ -364,32 +456,57 @@ func GetCurrentConfigPath() *C.char {
 }
 
 func checkForUpdates() {
+	runUpdateCheck(false)
+}
+
+func runUpdateCheck(force bool) {
+	if previewMode {
+		return
+	}
+	vmMu.Lock()
 	var runtime *goja.Runtime
 	if vm != nil {
 		runtime = vm.Runtime()
 	}
 
-	releaseInfo, updateCheckEnabled, err := version.CheckForUpdatesIfEnabled(runtime)
+	updateCheckEnabled, err := version.UpdateChecksEnabled(runtime)
+	vmMu.Unlock()
 	if err != nil {
 		slog.Error("Error checking for updates", "error", err)
+		return
 	}
+	releaseInfo := version.CheckForUpdatesWithSetting(updateCheckEnabled, force)
 
-	updateInfo = UpdateInfo{
+	updateInfo := UpdateInfo{
 		ReleaseInfo:        releaseInfo,
 		UpdateCheckEnabled: updateCheckEnabled,
 	}
 
 	if updateInfo.ReleaseInfo != nil && updateInfo.ReleaseInfo.HasUpdate {
-		slog.Info("New version is available", "version", updateInfo.ReleaseInfo.LatestVersion)
+		slog.Info("New version is available", "version", updateInfo.ReleaseInfo.LatestVersion, "commit", updateInfo.ReleaseInfo.LatestCommit, "source", updateInfo.ReleaseInfo.Source)
 	}
+
+	currentVersion := version.GetCurrentVersion()
+	currentCommit, currentBuildDate := version.GetBuildInfo()
 
 	if updateInfo.ReleaseInfo != nil {
 		window.SendMessageToWebView("updateInfo", map[string]interface{}{
-			"version":            updateInfo.ReleaseInfo.LatestVersion,
-			"hasUpdate":          updateInfo.ReleaseInfo.HasUpdate,
-			"updateCheckEnabled": updateInfo.UpdateCheckEnabled,
-			"downloadUrl":        updateInfo.ReleaseInfo.DownloadUrl,
-			"releaseUrl":         updateInfo.ReleaseInfo.ReleaseUrl,
+			"version":                 updateInfo.ReleaseInfo.LatestVersion,
+			"latestCommit":            updateInfo.ReleaseInfo.LatestCommit,
+			"publishedAt":             updateInfo.ReleaseInfo.PublishedAt,
+			"hasUpdate":               updateInfo.ReleaseInfo.HasUpdate,
+			"updateCheckEnabled":      updateInfo.UpdateCheckEnabled,
+			"downloadUrl":             updateInfo.ReleaseInfo.DownloadUrl,
+			"releaseUrl":              updateInfo.ReleaseInfo.ReleaseUrl,
+			"source":                  updateInfo.ReleaseInfo.Source,
+			"canInstallAutomatically": updateInfo.ReleaseInfo.CanInstallAutomatically,
+			"archivePendingDownload":  updateInfo.ReleaseInfo.ArchivePendingDownload,
+			"includesCompanion":       updateInfo.ReleaseInfo.IncludesCompanion,
+			"includesChromeExtension": updateInfo.ReleaseInfo.IncludesChromeExtension,
+			"notes":                   updateInfo.ReleaseInfo.Notes,
+			"currentVersion":          currentVersion,
+			"currentCommit":           currentCommit,
+			"currentBuildDate":        currentBuildDate,
 		})
 	} else {
 		window.SendMessageToWebView("updateInfo", map[string]interface{}{
@@ -398,6 +515,9 @@ func checkForUpdates() {
 			"updateCheckEnabled": updateInfo.UpdateCheckEnabled,
 			"downloadUrl":        "",
 			"releaseUrl":         "",
+			"currentVersion":     currentVersion,
+			"currentCommit":      currentCommit,
+			"currentBuildDate":   currentBuildDate,
 		})
 	}
 }
@@ -409,11 +529,11 @@ func tearDown() {
 }
 
 func setupVM(cfw *config.ConfigFileWatcher, namespace string) (*config.VM, error) {
-	logRequests := true
+	logRequests := false
 	var err error
 
 	defer func() {
-		err = logger.SetupFile(logRequests)
+		err = logger.SetupFile(logRequests && !dryRun)
 		if err != nil {
 			slog.Warn("Failed to setup file logging", "error", err)
 		}
@@ -449,7 +569,7 @@ func setupVM(cfw *config.ConfigFileWatcher, namespace string) (*config.VM, error
 			slog.Warn("Failed to load rules file", "error", rulesErr)
 		} else {
 			resolver.SetCachedRules(rf)
-			if rf.DefaultBrowser != "" || len(rf.Rules) > 0 {
+			if rf.DefaultBrowser != "" || len(rf.Rules) > 0 || rf.Options != nil || rf.Features != nil && rf.Features.TransformScript != "" {
 				script, scriptErr := rules.ToJSConfigScript(rf, namespace)
 				if scriptErr != nil {
 					return nil, fmt.Errorf("failed to generate config from rules: %v", scriptErr)
@@ -464,35 +584,76 @@ func setupVM(cfw *config.ConfigFileWatcher, namespace string) (*config.VM, error
 	}
 
 	if newVM == nil {
+		publishConfiguration(nil, "")
 		return nil, nil
 	}
-
-	cs := newVM.GetConfigState()
-	if cs != nil {
-		configInfo = &ConfigInfo{
-			Handlers:       cs.Handlers,
-			Rewrites:       cs.Rewrites,
-			DefaultBrowser: cs.DefaultBrowser,
-			ConfigPath:     configPath,
+	if rf, loadErr := rules.Load(); loadErr == nil {
+		if err = applyVisualOptions(newVM, rf); err != nil {
+			return nil, err
 		}
 	}
 
 	opts := newVM.GetAllConfigOptions()
 	logRequests = opts.LogRequests
+	publishConfiguration(newVM, configPath)
 
-	window.SendMessageToWebView("config", map[string]interface{}{
-		"handlers":       configInfo.Handlers,
-		"rewrites":       configInfo.Rewrites,
-		"defaultBrowser": configInfo.DefaultBrowser,
-		"configPath":     util.ShortenPath(configInfo.ConfigPath),
-		"isJSConfig":     newVM.IsJSConfig(),
+	return newVM, nil
+}
+
+// configurationSnapshot keeps the complete configuration message together so
+// refreshing effective options cannot erase the source path or routing counts.
+// Callers must serialize access to target's runtime.
+func configurationSnapshot(target *config.VM, path string) (*ConfigInfo, map[string]interface{}) {
+	info := &ConfigInfo{DefaultBrowser: "Safari", ConfigPath: path}
+	isJSConfig := false
+	if target != nil {
+		isJSConfig = target.IsJSConfig()
+		if state := target.GetConfigState(); state != nil {
+			info.Handlers = state.Handlers
+			info.Rewrites = state.Rewrites
+			info.DefaultBrowser = state.DefaultBrowser
+		}
+	}
+	opts := target.GetAllConfigOptions()
+	return info, map[string]interface{}{
+		"handlers":       info.Handlers,
+		"rewrites":       info.Rewrites,
+		"defaultBrowser": info.DefaultBrowser,
+		"configPath":     util.ShortenPath(info.ConfigPath),
+		"isJSConfig":     isJSConfig,
 		"options": map[string]interface{}{
 			"keepRunning":     opts.KeepRunning,
 			"hideIcon":        opts.HideIcon,
 			"logRequests":     opts.LogRequests,
 			"checkForUpdates": opts.CheckForUpdates,
 		},
-	})
+	}
+}
 
-	return newVM, nil
+func publishConfiguration(target *config.VM, path string) {
+	info, message := configurationSnapshot(target, path)
+	configInfo = info
+	window.SendMessageToWebView("config", message)
+}
+
+func applyVisualOptions(target *config.VM, rf rules.RulesFile) error {
+	if target == nil {
+		return nil
+	}
+	overrides := make(map[string]interface{})
+	if rf.Options != nil {
+		if rf.Options.KeepRunning != nil {
+			overrides["keepRunning"] = *rf.Options.KeepRunning
+		}
+		if rf.Options.HideIcon != nil {
+			overrides["hideIcon"] = *rf.Options.HideIcon
+		}
+		if rf.Options.LogRequests != nil {
+			overrides["logRequests"] = *rf.Options.LogRequests
+		}
+		if rf.Options.CheckForUpdates != nil {
+			overrides["checkForUpdates"] = *rf.Options.CheckForUpdates
+		}
+	}
+	return target.ApplyOptionOverrides(overrides)
 }

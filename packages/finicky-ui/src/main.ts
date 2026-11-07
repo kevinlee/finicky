@@ -1,6 +1,8 @@
+import "./lib/devPreview";
 import { mount } from "svelte";
 import App from "./App.svelte";
 import "./reset.css";
+import "./theme";
 import "./app.css";
 
 const app = mount(App, {

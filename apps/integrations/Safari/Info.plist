@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Waystile Safari</string>
+	<key>CFBundleDisplayName</key>
+	<string>Waystile Safari</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.Safari.extension</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).SafariExtensionHandler</string>
+		<key>SFSafariWebsiteAccess</key>
+		<dict>
+			<key>Level</key>
+			<string>All</string>
+			<key>Include Secure Pages</key>
+			<true/>
+		</dict>
+		<key>SFSafariContentScript</key>
+		<array>
+			<dict>
+				<key>Script</key>
+				<string>context.js</string>
+			</dict>
+		</array>
+		<key>SFSafariContextMenu</key>
+		<array>
+			<dict>
+				<key>Command</key>
+				<string>open-link</string>
+				<key>Text</key>
+				<string>Open Link with Waystile</string>
+			</dict>
+		</array>
+		<key>SFSafariToolbarItem</key>
+		<dict>
+			<key>Action</key>
+			<string>Command</string>
+			<key>Identifier</key>
+			<string>OpenWithFinickyPlus</string>
+			<key>Label</key>
+			<string>Open with Waystile</string>
+			<key>Image</key>
+			<string>ToolbarIcon.pdf</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

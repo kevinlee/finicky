@@ -10,9 +10,10 @@ import (
 )
 
 type VM struct {
-	runtime    *goja.Runtime
-	namespace  string
-	isJSConfig bool
+	runtime     *goja.Runtime
+	namespace   string
+	isJSConfig  bool
+	baseOptions goja.Value
 }
 
 // ConfigOptions holds the values of all runtime config options.
@@ -114,8 +115,31 @@ func (vm *VM) setup(apiContent []byte, content []byte) error {
 	if !validConfig.ToBoolean() {
 		return fmt.Errorf("configuration is invalid")
 	}
+	// Keep the original JS values (including functions) separate from visual
+	// overrides so removing an override restores the loaded configuration.
+	vm.baseOptions, err = vm.runtime.RunString("Object.assign({}, finalConfig.options || {})")
+	if err != nil {
+		return fmt.Errorf("failed to preserve config options: %w", err)
+	}
 
 	return nil
+}
+
+// ApplyOptionOverrides replaces the visual overlay instead of accumulating it.
+// Callers must serialize access to the VM, as with its other runtime methods.
+func (vm *VM) ApplyOptionOverrides(overrides map[string]interface{}) error {
+	fn, err := vm.runtime.RunString(`(function(base, overrides) {
+		finalConfig.options = Object.assign({}, base, overrides);
+	})`)
+	if err != nil {
+		return err
+	}
+	apply, ok := goja.AssertFunction(fn)
+	if !ok {
+		return fmt.Errorf("could not apply option overrides")
+	}
+	_, err = apply(goja.Undefined(), vm.baseOptions, vm.runtime.ToValue(overrides))
+	return err
 }
 
 func (vm *VM) GetConfigState() *ConfigState {

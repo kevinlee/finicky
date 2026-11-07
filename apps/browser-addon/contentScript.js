@@ -1,72 +1,19 @@
-let isIntercepting = false;
-
-window.addEventListener("keydown", (event) => {
-  if (!event.isTrusted) return;
-
-  if (event.key.toLowerCase() === "alt") {
-    isIntercepting = true;
-  }
-});
-
-window.addEventListener("keyup", (event) => {
-  if (!event.isTrusted) return;
-
-  if (event.key.toLowerCase() === "alt") {
-    isIntercepting = false;
-  }
-});
-
-window.addEventListener("blur", (event) => {
-  isIntercepting = false;
-});
-
-function getAnchor(element) {
-  do {
-    if (element.tagName?.toLowerCase() === "a") {
-      return element;
-    }
-
-    element = element.parentNode;
-  } while (element.parentNode);
-
-  return undefined;
-}
-
-window.addEventListener(
-  "mousedown", 
-  function (event) {
-    const anchor = getAnchor(event.target);
-    if (!anchor) return;
-  }
-);
-
-window.addEventListener(
-  "click", 
-  function (event) {
-    const anchor = capture(event);
-    if (!anchor) return;
-
-    try {
-      const url = new URL(anchor.href, document.baseURI).href;          
-      window.location = "finicky://open/" + btoa(url);
-    } catch (ex) {
-      console.error("Finicky Browser Extension Error", ex);
-    }
-  },
-  true
-);
-
-function capture(event) {
-  if (!event.isTrusted) return;
-
-  if (!isIntercepting) return;    
-
-  const anchor = getAnchor(event.target);
-
-  if (!anchor?.hasAttribute("href")) return;
-
-  event.preventDefault();
-  event.stopImmediatePropagation();
-
-  return anchor;
-}
+// Option-click routes a link; Option-Shift-click forces the native picker.
+// Synthetic events never invoke external applications.
+window.addEventListener("click", event => {
+  if (!event.isTrusted || !event.altKey || event.button !== 0) return;
+  const origin = event.target instanceof Element ? event.target : event.target?.parentElement;
+  const anchor = origin?.closest("a[href]");
+  if (!anchor) return;
+  try {
+    const target = new URL(anchor.href, document.baseURI);
+    if (!["http:", "https:"].includes(target.protocol)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const extensionAPI = typeof browser !== "undefined" ? browser : chrome;
+    // The background adds browser-reported privacy from the real sender tab.
+    // No page-provided tab identifier or privacy flag crosses this boundary.
+    const sent = extensionAPI.runtime.sendMessage({type: "finicky-open-link", url: target.href, prompt: event.shiftKey});
+    sent?.catch(() => {});
+  } catch { /* Ignore unsupported links. */ }
+}, true);

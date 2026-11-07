@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Open with Waystile</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleIconFile</key>
+	<string>finicky</string>
+	<key>CFBundleName</key>
+	<string>Open with Waystile</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.share-services</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<!-- macOS matches selected attributed text as contentText with no
+			     attachments key. Accept that text or a readable text/web URL
+			     representation, and cap both item and per-item attachment counts. -->
+			<key>NSExtensionActivationRule</key>
+			<string>
+                extensionItems.@count &gt; 0 AND extensionItems.@count &lt;= 256 AND
+                SUBQUERY(extensionItems, $item,
+                    ($item.attachments == NIL OR $item.attachments.@count &lt;= 256) AND
+                    ($item.contentText != NIL OR
+                        SUBQUERY($item.attachments, $attachment,
+                            ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text" OR
+                            ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.rtf" OR
+                            (
+                                ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url" AND
+                                NOT ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.file-url" AND
+                                SUBQUERY($attachment.registeredTypeIdentifiers, $type,
+                                    $type UTI-CONFORMS-TO "public.url" AND
+                                    NOT $type UTI-CONFORMS-TO "com.apple.active-webpage"
+                                ).@count &gt; 0
+                            )
+                        ).@count &gt; 0
+                    )
+                ).@count == extensionItems.@count
+            </string>
+		</dict>
+	</dict>
+</dict>
+</plist>

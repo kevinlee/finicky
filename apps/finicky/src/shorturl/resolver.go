@@ -37,101 +37,73 @@ func init() {
 // ResolveURL resolves a potentially shortened URL to its final destination by following HTTP redirects, so
 // the matcher can match the final URL instead of the short URL.
 func ResolveURL(originalURL string) (string, error) {
+	return ResolveURLWithDomains(originalURL, nil)
+}
+
+// ResolveURLWithDomains extends the built-in list without changing global state.
+func ResolveURLWithDomains(originalURL string, extraDomains []string) (string, error) {
 	parsedURL, err := url.Parse(originalURL)
 	if err != nil {
-		return originalURL, fmt.Errorf("failed to parse URL: %v", err)
+		return originalURL, fmt.Errorf("failed to parse URL: %w", err)
 	}
-
-	// Check if the domain is a known URL shortener
-	isShortURL := false
-	for _, domain := range shortenerDomains {
-		if strings.HasSuffix(parsedURL.Host, domain) {
-			isShortURL = true
-			break
-		}
-	}
-
-	if !isShortURL {
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return originalURL, nil
 	}
-
-	slog.Debug("URL host looks like a short URL", "host", parsedURL.Host)
-
-	var lastUrl string
-
-	// Helper to get the best available URL
-	getReturnUrl := func() string {
-		if lastUrl != "" && lastUrl != originalURL {
-			slog.Debug("Falling back to last known URL from redirects", "url", lastUrl)
-			return lastUrl
+	host := strings.ToLower(strings.TrimSuffix(parsedURL.Hostname(), "."))
+	known := func(domains []string) bool {
+		for _, domain := range domains {
+			if matchesDomain(host, domain) {
+				return true
+			}
 		}
-		return originalURL
+		return false
 	}
-
-	// Create a client with a timeout
+	if !known(shortenerDomains) && !known(extraDomains) {
+		return originalURL, nil
+	}
+	lastURL := originalURL
 	client := &http.Client{
 		Timeout: 750 * time.Millisecond,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			lastUrl = req.URL.String()
-			slog.Debug("Redirected to", "url", lastUrl)
-			// Allow up to 3 redirects
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("unsupported redirect scheme")
+			}
+			lastURL = req.URL.String()
 			if len(via) >= 3 {
 				return fmt.Errorf("stopped after 3 redirects")
 			}
 			return nil
 		},
 	}
-
-	// Make a HEAD request first to follow redirects without downloading content
-	req, err := http.NewRequest("HEAD", originalURL, nil)
-	if err != nil {
-		return originalURL, fmt.Errorf("failed to create request: %v", err)
-	}
-	req.Header.Set("User-Agent", "Finicky/4.0")
-
-	resp, err := client.Do(req)
-
-	if err != nil {
-		slog.Debug("Failed to make HEAD request", "url", originalURL, "error", err)
-	}
-
-	if resp != nil {
-		// If we got a successful response, return the final URL
-		if resp.StatusCode == http.StatusOK {
-			slog.Debug("Got a successful response", "url", resp.Request.URL.String())
-			return resp.Request.URL.String(), nil
+	var lastErr error
+	for _, method := range []string{http.MethodHead, http.MethodGet} {
+		req, err := http.NewRequest(method, originalURL, nil)
+		if err != nil {
+			return lastURL, err
 		}
-
-		if resp.Body != nil {
-			resp.Body.Close()
+		req.Header.Set("User-Agent", "Finicky/4.0")
+		resp, err := client.Do(req)
+		// Close on every path, including successful HEAD and GET responses.
+		if resp != nil {
+			if resp.Body != nil {
+				resp.Body.Close()
+			}
+			if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 400 {
+				return resp.Request.URL.String(), nil
+			}
+			if err == nil {
+				err = fmt.Errorf("shortener returned HTTP %d", resp.StatusCode)
+			}
 		}
+		lastErr = err
 	}
-
-	// If HEAD request failed, try GET as fallback
-	req, err = http.NewRequest("GET", originalURL, nil)
-	if err != nil {
-		return getReturnUrl(), fmt.Errorf("failed to create GET request: %v", err)
+	if lastErr == nil {
+		lastErr = fmt.Errorf("shortener returned no response")
 	}
-	req.Header.Set("User-Agent", "Finicky/4.0")
+	return lastURL, lastErr
+}
 
-	resp, err = client.Do(req)
-
-	if err != nil {
-		return getReturnUrl(), fmt.Errorf("failed to make GET request: %v", err)
-	}
-
-	if resp != nil {
-		if resp.StatusCode == http.StatusOK {
-			slog.Debug("Got a successful response", "url", resp.Request.URL.String())
-			return resp.Request.URL.String(), nil
-		}
-
-		if resp.Body != nil {
-			resp.Body.Close()
-		}
-	}
-
-	// If both HEAD and GET failed, return original URL
-	return getReturnUrl(), fmt.Errorf("failed to resolve URL: no response received")
-
+func matchesDomain(host, domain string) bool {
+	domain = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(domain), "."))
+	return domain != "" && (host == domain || strings.HasSuffix(host, "."+domain))
 }
